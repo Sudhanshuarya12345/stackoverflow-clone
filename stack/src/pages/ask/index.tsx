@@ -56,9 +56,14 @@ const index = () => {
         toast.success("Question posted successfully");
         router.push("/");
       }
-    } catch (error) {
+    } catch (error: any) {
       console.log(error);
-      toast.error("Something went wrong");
+      if (error.response?.status === 403) {
+        toast.error(error.response.data.message || "Daily question limit reached. Please upgrade to a premium plan.");
+        router.push("/subscription");
+      } else {
+        toast.error(error.response?.data?.message || "Something went wrong");
+      }
     }
   };
   const handleAddTag = (e: any) => {

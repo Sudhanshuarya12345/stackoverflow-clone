@@ -53,7 +53,7 @@ const Navbar = ({ handleslidein }: any) => {
           </form>
         </div>
         <div className="flex items-center gap-2">
-           {!hasMounted ? null : !user ? (
+          {!hasMounted ? null : !user ? (
             <Link
               href="/auth"
               className="text-sm font-medium text-[#454545] bg-[#e7f8fe] hover:bg-[#d3e4eb] border border-blue-500 px-4 py-1.5 rounded transition"
@@ -62,12 +62,20 @@ const Navbar = ({ handleslidein }: any) => {
             </Link>
           ) : (
             <>
-              <Link
-                href={`/users/${user._id}`}
-                className="flex items-center justify-center bg-orange-600 text-white text-sm font-semibold w-9 h-9 rounded-full"
-              >
-                {user.name?.charAt(0).toUpperCase()}
-              </Link>
+              <div className="flex items-center">
+                <Link
+                  href={`/users/${user._id}`}
+                  className="flex items-center justify-center bg-orange-600 text-white text-sm font-semibold w-9 h-9 rounded-full"
+                >
+                  {user.name?.charAt(0).toUpperCase()}
+                </Link>
+                {/* Dynamically imported PlanBadge to avoid circular dep issues just in case, but static import is fine */}
+                {user.plan && user.plan !== "free" && (
+                  <span className="hidden sm:inline-block ml-2">
+                    <span className={`px-2 py-0.5 rounded text-xs font-bold uppercase tracking-wider text-white shadow-sm ${user.plan === 'gold' ? 'bg-[#ffd700] text-gray-900' : user.plan === 'silver' ? 'bg-[#c0c0c0] text-gray-900' : 'bg-[#cd7f32]'}`}>{user.plan}</span>
+                  </span>
+                )}
+              </div>
 
               <button
                 onClick={handlelogout}

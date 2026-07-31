@@ -7,6 +7,13 @@ export const Askquestion = async (req, res) => {
   const postques = new question({ ...postquestiondata });
   try {
     await postques.save();
+
+    if (req.userState) {
+      req.userState.userDoc.questionsToday = req.userState.questionsToday + 1;
+      req.userState.userDoc.questionResetDate = req.userState.questionResetDate;
+      await req.userState.userDoc.save();
+    }
+
     res.status(200).json({ data: postques });
   } catch (error) {
     console.log(error);
@@ -15,11 +22,39 @@ export const Askquestion = async (req, res) => {
   }
 };
 
+import User from "../models/auth.js";
+
 export const getallquestion = async (req, res) => {
   try {
-    const allquestion = await question.find().sort({ askedon: -1 });
-    res.status(200).json({ data: allquestion });
+    const allquestion = await question.find().sort({ askedon: -1 }).lean();
+    
+    const userIds = allquestion.map((q) => q.userid).filter(id => mongoose.Types.ObjectId.isValid(id));
+    allquestion.forEach(q => {
+      if (q.answer && q.answer.length > 0) {
+        q.answer.forEach(a => {
+          if (mongoose.Types.ObjectId.isValid(a.userid)) userIds.push(a.userid);
+        });
+      }
+    });
+
+    const uniqueUserIds = [...new Set(userIds)];
+    const users = await User.find({ _id: { $in: uniqueUserIds } }).select("plan");
+    
+    const userMap = {};
+    users.forEach(u => userMap[u._id.toString()] = u.plan);
+    
+    const questionsWithPlan = allquestion.map(q => {
+      const qPlan = userMap[q.userid?.toString()] || "free";
+      const mappedAnswers = (q.answer || []).map(a => ({
+         ...a,
+         userplan: userMap[a.userid?.toString()] || "free"
+      }));
+      return { ...q, userplan: qPlan, answer: mappedAnswers };
+    });
+
+    res.status(200).json({ data: questionsWithPlan });
   } catch (error) {
+    console.log(error);
     res.status(500).json("something went wrong..");
     return;
   }

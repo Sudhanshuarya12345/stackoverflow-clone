@@ -20,6 +20,7 @@ import { useRouter } from "next/router";
 import axiosInstance from "@/lib/axiosinstance";
 import Mainlayout from "@/layout/Mainlayout";
 import { useAuth } from "@/lib/AuthContext";
+import PlanBadge from "@/components/PlanBadge";
 const questionData = {
   id: 3,
   title: "How can i block user with middleware?",
@@ -286,7 +287,7 @@ const QuestionDetail = ({ questionId }: any) => {
   }
 
   const handleVote = async (vote: String) => {
-    if(!user){
+    if (!user) {
       toast.info("Please login to continue")
       router.push("/auth")
       return
@@ -309,7 +310,7 @@ const QuestionDetail = ({ questionId }: any) => {
     setquestion((prev: any) => ({ ...prev, isBookmarked: !prev.isBookmarked }));
   };
   const handleSubmitanswer = async () => {
-    if(!user){
+    if (!user) {
       toast.info("Please login to continue")
       router.push("/auth")
       return
@@ -349,7 +350,7 @@ const QuestionDetail = ({ questionId }: any) => {
     }
   };
   const handleDelete = async () => {
-    if(!user){
+    if (!user) {
       toast.info("Please login to continue")
       router.push("/auth")
       return
@@ -370,7 +371,7 @@ const QuestionDetail = ({ questionId }: any) => {
     }
   };
   const handleDeleteanswer = async (id: String) => {
-    if(!user){
+    if (!user) {
       toast.info("Please login to continue")
       router.push("/auth")
       return
@@ -444,11 +445,10 @@ const QuestionDetail = ({ questionId }: any) => {
                 <Button
                   variant="ghost"
                   size="sm"
-                  className={`p-2 ${
-                    question?.isBookmarked
-                      ? "text-yellow-500"
-                      : "text-gray-600 hover:text-yellow-500"
-                  }`}
+                  className={`p-2 ${question?.isBookmarked
+                    ? "text-yellow-500"
+                    : "text-gray-600 hover:text-yellow-500"
+                    }`}
                   onClick={handlebookmark}
                 >
                   <Bookmark
@@ -550,8 +550,9 @@ const QuestionDetail = ({ questionId }: any) => {
                       </AvatarFallback>
                     </Avatar>
                     <div>
-                      <div className="text-blue-600 hover:text-blue-800 font-medium">
+                      <div className="flex items-center text-blue-600 hover:text-blue-800 font-medium">
                         {question.userposted}
+                        {question.userplan && <PlanBadge plan={question.userplan} />}
                       </div>
                     </div>
                   </Link>
@@ -644,8 +645,9 @@ const QuestionDetail = ({ questionId }: any) => {
                             </AvatarFallback>
                           </Avatar>
                           <div>
-                            <div className="text-blue-600 hover:text-blue-800 font-medium">
+                            <div className="flex items-center text-blue-600 hover:text-blue-800 font-medium">
                               {ans.useranswered}
+                              {ans.userplan && <PlanBadge plan={ans.userplan} />}
                             </div>
                           </div>
                         </Link>

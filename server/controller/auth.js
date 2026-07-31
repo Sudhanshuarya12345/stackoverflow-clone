@@ -9,17 +9,17 @@ export const Signup = async (req, res) => {
     if (exisitinguser) {
       return res.status(404).json({ message: "User already exist" });
     }
-    const token = jwt.sign(
-      { email: newuser.email, id: newuser._id },
-      process.env.JWT_SECRET,
-      { expiresIn: "1h" }
-    );
     const hashpassword = await bcrypt.hash(password, 12);
     const newuser = await user.create({
       name,
       email,
       password: hashpassword,
     });
+    const token = jwt.sign(
+      { email: newuser.email, id: newuser._id },
+      process.env.JWT_SECRET,
+      { expiresIn: "1h" }
+    );
     res.status(200).json({ data: newuser, token });
   } catch (error) {
     res.status(500).json("something went wrong..");
