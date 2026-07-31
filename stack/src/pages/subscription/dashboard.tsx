@@ -5,7 +5,7 @@ import axiosInstance from "@/lib/axiosinstance";
 import { useEffect, useState } from "react";
 import { toast } from "react-toastify";
 import Link from "next/link";
-import { FileDown, Calendar, CreditCard, Clock, CheckCircle, AlertCircle } from "lucide-react";
+import { FileDown, Calendar, CreditCard, Clock, CheckCircle, AlertCircle, Star } from "lucide-react";
 import PlanBadge from "@/components/PlanBadge";
 
 export default function SubscriptionDashboard() {

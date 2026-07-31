@@ -54,12 +54,20 @@ const Navbar = ({ handleslidein }: any) => {
         </div>
         <div className="flex items-center gap-2">
           {!hasMounted ? null : !user ? (
-            <Link
-              href="/auth"
-              className="text-sm font-medium text-[#454545] bg-[#e7f8fe] hover:bg-[#d3e4eb] border border-blue-500 px-4 py-1.5 rounded transition"
-            >
-              Log in
-            </Link>
+            <>
+              <Link
+                href="/auth"
+                className="text-sm font-medium text-[#454545] bg-[#e7f8fe] hover:bg-[#d3e4eb] border border-blue-500 px-4 py-1.5 rounded transition"
+              >
+                Log in
+              </Link>
+              <Link
+                href="/signup"
+                className="text-sm font-medium text-white bg-[#0a95ff] hover:bg-[#0074cc] border border-transparent px-4 py-1.5 rounded transition shadow-sm"
+              >
+                Sign up
+              </Link>
+            </>
           ) : (
             <>
               <div className="flex items-center">
