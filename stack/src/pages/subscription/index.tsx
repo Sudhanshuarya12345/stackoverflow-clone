@@ -54,7 +54,7 @@ export default function PricingPage() {
     const [loadingPlan, setLoadingPlan] = useState("");
     const router = useRouter();
 
-    const handleSubscribe = async (planId) => {
+    const handleSubscribe = async (planId: string) => {
         if (!user) {
             toast.error("Please log in to subscribe");
             router.push("/auth");
@@ -73,7 +73,7 @@ export default function PricingPage() {
                 name: "StackOverflow Clone",
                 description: `${planId.toUpperCase()} Plan Subscription`,
                 image: "/logo.png",
-                handler: function (response) {
+                handler: function (response: any) {
                     toast.success("Payment successful! Auto-activating plan...");
                     // Wait a moment for webhook to process, then redirect to dashboard
                     setTimeout(() => {
@@ -170,10 +170,10 @@ export default function PricingPage() {
                                     disabled={loadingPlan === plan.id || plan.id === "free"}
                                     onClick={() => handleSubscribe(plan.id)}
                                     className={`mt-8 block w-full rounded-md px-6 py-3 text-center text-sm font-semibold shadow focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 transition-all ${plan.id === "free"
-                                            ? "bg-gray-100 text-gray-400 cursor-not-allowed"
-                                            : plan.popular
-                                                ? "bg-orange-600 text-white hover:bg-orange-500 focus-visible:outline-orange-600"
-                                                : "bg-white text-orange-600 border border-orange-200 hover:bg-orange-50"
+                                        ? "bg-gray-100 text-gray-400 cursor-not-allowed"
+                                        : plan.popular
+                                            ? "bg-orange-600 text-white hover:bg-orange-500 focus-visible:outline-orange-600"
+                                            : "bg-white text-orange-600 border border-orange-200 hover:bg-orange-50"
                                         }`}
                                 >
                                     {loadingPlan === plan.id ? "Loading..." : plan.id === "free" ? "Current default" : `Subscribe to ${plan.name}`}
