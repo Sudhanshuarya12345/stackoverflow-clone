@@ -5,8 +5,14 @@ import mongoose from "mongoose";
 import userroutes from "./routes/auth.js"
 import questionroute from "./routes/question.js"
 import answerroutes from "./routes/answer.js"
+import webhookroute from "./routes/webhook.js"
+import subscriptionroutes from "./routes/subscription.js"
 const app = express();
 dotenv.config();
+
+// Webhook mounted BEFORE json body parser with raw expression
+app.use('/api/webhooks', express.raw({type: 'application/json'}), webhookroute);
+
 app.use(express.json({ limit: "30mb", extended: true }));
 app.use(express.urlencoded({ limit: "30mb", extended: true }));
 app.use(cors());
@@ -16,6 +22,7 @@ app.get("/", (req, res) => {
 app.use('/user',userroutes)
 app.use('/question',questionroute)
 app.use('/answer',answerroutes)
+app.use('/api/subscriptions', subscriptionroutes)
 const PORT = process.env.PORT || 5000;
 const databaseurl = process.env.MONGODB_URL;
 

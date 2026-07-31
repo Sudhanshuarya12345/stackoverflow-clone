@@ -5,6 +5,7 @@ import axiosInstance from "@/lib/axiosinstance";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import { useEffect, useState } from "react";
+import PlanBadge from "@/components/PlanBadge";
 
 const questions = [
   {
@@ -151,11 +152,10 @@ export default function Home() {
                     </div>
                     <div className="text-center">
                       <div
-                        className={`font-medium ${
-                          question.answer.length > 0
-                            ? "text-green-600 bg-green-100 px-2 py-1 rounded"
-                            : ""
-                        }`}
+                        className={`font-medium ${question.answer.length > 0
+                          ? "text-green-600 bg-green-100 px-2 py-1 rounded"
+                          : ""
+                          }`}
                       >
                         {question.noofanswer}
                       </div>
@@ -201,8 +201,9 @@ export default function Home() {
                               {question.userposted[0]}
                             </AvatarFallback>
                           </Avatar>
-                          <span className="text-blue-600 hover:text-blue-800 mr-1">
+                          <span className="text-blue-600 hover:text-blue-800 mr-1 flex items-center">
                             {question.userposted}
+                            {question.userplan && <PlanBadge plan={question.userplan} />}
                           </span>
                         </Link>
 

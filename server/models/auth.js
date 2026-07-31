@@ -7,5 +7,8 @@ const userschema = mongoose.Schema({
   about: { type: String },
   tags: { type: [String] },
   joinDate: { type: Date, default: Date.now },
+  plan: { type: String, enum: ["free", "bronze", "silver", "gold"], default: "free" },
+  questionsToday: { type: Number, default: 0 },
+  questionResetDate: { type: String },
 });
 export default mongoose.model("user", userschema);
