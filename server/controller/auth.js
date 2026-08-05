@@ -20,7 +20,9 @@ export const Signup = async (req, res) => {
       process.env.JWT_SECRET,
       { expiresIn: "1h" }
     );
-    res.status(200).json({ data: newuser, token });
+    const safeUser = newuser.toObject();
+    delete safeUser.password;
+    res.status(200).json({ data: safeUser, token });
   } catch (error) {
     res.status(500).json("something went wrong..");
     return;
@@ -46,7 +48,9 @@ export const Login = async (req, res) => {
       process.env.JWT_SECRET,
       { expiresIn: "1h" }
     );
-    res.status(200).json({ data: exisitinguser, token });
+    const safeUser = exisitinguser.toObject();
+    delete safeUser.password;
+    res.status(200).json({ data: safeUser, token });
   } catch (error) {
     res.status(500).json("something went wrong..");
     return;
@@ -54,7 +58,9 @@ export const Login = async (req, res) => {
 };
 export const getallusers = async (req, res) => {
   try {
-    const alluser = await user.find();
+    const alluser = await user.find().select("-password").lean();
+    const planRank = { gold: 3, silver: 2, bronze: 1, free: 0 };
+    alluser.sort((a, b) => (planRank[b.plan] || 0) - (planRank[a.plan] || 0));
     res.status(200).json({ data: alluser });
   } catch (error) {
     res.status(500).json("something went wrong..");
@@ -67,13 +73,18 @@ export const updateprofile = async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(_id)) {
     return res.status(400).json({ message: "User unavailable" });
   }
+  if (String(req.userid) !== String(_id)) {
+    return res.status(403).json({ message: "You can only update your own profile" });
+  }
   try {
     const updateprofile = await user.findByIdAndUpdate(
       _id,
       { $set: { name: name, about: about, tags: tags } },
       { new: true }
     );
-    res.status(200).json({ data: updateprofile });
+    const safeUser = updateprofile.toObject();
+    delete safeUser.password;
+    res.status(200).json({ data: safeUser });
   } catch (error) {
     console.log(error);
     res.status(500).json("something went wrong..");

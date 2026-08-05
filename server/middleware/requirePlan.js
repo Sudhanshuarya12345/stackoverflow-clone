@@ -1,16 +1,11 @@
 import User from "../models/auth.js";
-import { PLANS } from "../config/plans.js";
-
-const PLAN_LEVELS = {
-  free: 0,
-  bronze: 1,
-  silver: 2,
-  gold: 3,
-};
+import { PLANS, PLAN_LEVELS } from "../config/plans.js";
+import { refreshUserPlanFromSubscription } from "../services/subscriptionAccess.js";
 
 export const requirePlan = (minPlan) => {
   return async (req, res, next) => {
     try {
+      await refreshUserPlanFromSubscription(req.userid);
       const user = await User.findById(req.userid);
       if (!user) {
         return res.status(404).json({ message: "User not found" });
@@ -32,28 +27,66 @@ export const requirePlan = (minPlan) => {
 
 export const checkQuestionLimit = async (req, res, next) => {
   try {
+    const refreshed = await refreshUserPlanFromSubscription(req.userid);
     const user = await User.findById(req.userid);
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
 
     const todayDateStr = new Date().toISOString().split('T')[0]; // Midnight UTC
+    const plan = refreshed.plan || user.plan || "free";
+    const limit = PLANS[plan]?.dailyLimit || 1;
 
-    let updatedQuestionsToday = user.questionsToday || 0;
-    if (user.questionResetDate !== todayDateStr) {
-      updatedQuestionsToday = 0;
+    if (limit === Infinity) {
+      req.userState = {
+        questionsToday: user.questionsToday || 0,
+        questionResetDate: todayDateStr,
+        reservedQuestionSlot: false,
+      };
+      return next();
     }
 
-    const limit = PLANS[user.plan]?.dailyLimit || 1;
+    const updatedUser = await User.findOneAndUpdate(
+      {
+        _id: req.userid,
+        $expr: {
+          $lt: [
+            {
+              $cond: [
+                { $eq: ["$questionResetDate", todayDateStr] },
+                { $ifNull: ["$questionsToday", 0] },
+                0,
+              ],
+            },
+            limit,
+          ],
+        },
+      },
+      [
+        {
+          $set: {
+            questionResetDate: todayDateStr,
+            questionsToday: {
+              $cond: [
+                { $eq: ["$questionResetDate", todayDateStr] },
+                { $add: [{ $ifNull: ["$questionsToday", 0] }, 1] },
+                1,
+              ],
+            },
+          },
+        },
+      ],
+      { new: true }
+    );
 
-    if (updatedQuestionsToday >= limit) {
-      return res.status(403).json({ message: `Daily question limit (${limit}) reached for your ${user.plan} plan.` });
+    if (!updatedUser) {
+      return res.status(403).json({ message: `Daily question limit (${limit}) reached for your ${plan} plan.` });
     }
 
     req.userState = {
-      questionsToday: updatedQuestionsToday,
+      questionsToday: updatedUser.questionsToday,
       questionResetDate: todayDateStr,
-      userDoc: user
+      reservedQuestionSlot: true,
     };
 
     next();

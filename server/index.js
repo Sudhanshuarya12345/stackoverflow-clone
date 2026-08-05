@@ -7,6 +7,8 @@ import questionroute from "./routes/question.js"
 import answerroutes from "./routes/answer.js"
 import webhookroute from "./routes/webhook.js"
 import subscriptionroutes from "./routes/subscription.js"
+import communityroutes from "./routes/community.js"
+import { expireDueSubscriptions } from "./services/subscriptionAccess.js";
 const app = express();
 dotenv.config();
 
@@ -23,6 +25,7 @@ app.use('/user',userroutes)
 app.use('/question',questionroute)
 app.use('/answer',answerroutes)
 app.use('/api/subscriptions', subscriptionroutes)
+app.use('/api/community', communityroutes)
 const PORT = process.env.PORT || 5000;
 const databaseurl = process.env.MONGODB_URL;
 
@@ -33,6 +36,13 @@ mongoose
     app.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);
     });
+    setInterval(async () => {
+      try {
+        await expireDueSubscriptions();
+      } catch (error) {
+        console.error("Subscription expiry job failed:", error);
+      }
+    }, 60 * 60 * 1000);
   })
   .catch((err) => {
     console.error("❌ MongoDB connection error:", err.message);
