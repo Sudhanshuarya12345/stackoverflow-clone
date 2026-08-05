@@ -50,7 +50,7 @@ const PLANS = [
 ];
 
 export default function PricingPage() {
-    const { user } = useAuth();
+    const { user, updateLocalUser } = useAuth();
     const [loadingPlan, setLoadingPlan] = useState("");
     const router = useRouter();
 
@@ -73,12 +73,24 @@ export default function PricingPage() {
                 name: "StackOverflow Clone",
                 description: `${planId.toUpperCase()} Plan Subscription`,
                 image: "/logo.png",
-                handler: function (response: any) {
-                    toast.success("Payment successful! Auto-activating plan...");
-                    // Wait a moment for webhook to process, then redirect to dashboard
-                    setTimeout(() => {
-                        router.push("/subscription/dashboard");
-                    }, 2000);
+                handler: async function (response: any) {
+                    toast.success("Payment successful! Verifying subscription...");
+                    for (let attempt = 0; attempt < 6; attempt += 1) {
+                        try {
+                            const reconcile = await axiosInstance.post("/api/subscriptions/reconcile");
+                            const syncedPlan = reconcile.data?.userPlanDetails?.plan;
+                            if (syncedPlan && syncedPlan !== "free") {
+                                updateLocalUser({ plan: syncedPlan });
+                                router.push("/subscription/dashboard");
+                                return;
+                            }
+                        } catch (error) {
+                            // Retry briefly; Razorpay webhooks can arrive after checkout callback.
+                        }
+                        await new Promise((resolve) => setTimeout(resolve, 2000));
+                    }
+                    toast.info("Payment received. Your plan will update when Razorpay confirmation arrives.");
+                    router.push("/subscription/dashboard");
                 },
                 prefill: {
                     name: user.name,

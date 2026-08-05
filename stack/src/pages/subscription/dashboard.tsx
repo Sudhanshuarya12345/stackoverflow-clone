@@ -25,7 +25,7 @@ export default function SubscriptionDashboard() {
             setLoading(true);
             const [subRes, invRes] = await Promise.all([
                 axiosInstance.get("/api/subscriptions/me"),
-                axiosInstance.get("/api/subscriptions/invoices")
+                axiosInstance.get("/api/subscriptions/invoices?page=1&limit=20")
             ]);
 
             setSubData(subRes.data.subscription);
@@ -40,6 +40,17 @@ export default function SubscriptionDashboard() {
             console.error(error);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleCancel = async () => {
+        if (!window.confirm("Cancel subscription? Your premium access will continue until the paid period ends.")) return;
+        try {
+            await axiosInstance.post("/api/subscriptions/cancel");
+            toast.success("Subscription cancellation scheduled for period end.");
+            fetchDashboardData();
+        } catch (error: any) {
+            toast.error(error.response?.data?.message || "Failed to cancel subscription");
         }
     };
 
@@ -108,9 +119,14 @@ export default function SubscriptionDashboard() {
                                         <CheckCircle className="w-4 h-4 mr-1" /> Active
                                     </span>
                                 )}
-                                {subData?.status === 'cancelled' && (
+                                {subData?.status === 'cancellation_pending' && (
+                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                                        <AlertCircle className="w-4 h-4 mr-1" /> Cancels at period end
+                                    </span>
+                                )}
+                                {['cancelled', 'expired', 'halted', 'completed'].includes(subData?.status) && (
                                     <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
-                                        <AlertCircle className="w-4 h-4 mr-1" /> Cancelled
+                                        <AlertCircle className="w-4 h-4 mr-1" /> {subData?.status}
                                     </span>
                                 )}
                             </div>
@@ -140,6 +156,16 @@ export default function SubscriptionDashboard() {
                                                     {subData.razorpay_subscription_id}
                                                 </dd>
                                             </div>
+                                            {subData.status === 'active' && (
+                                                <div className="py-4 sm:py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
+                                                    <dt className="text-sm font-medium text-gray-500">Cancellation</dt>
+                                                    <dd className="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">
+                                                        <button onClick={handleCancel} className="text-red-600 hover:text-red-800 font-medium">
+                                                            Cancel at period end
+                                                        </button>
+                                                    </dd>
+                                                </div>
+                                            )}
                                         </>
                                     )}
                                     {!isPremium && (
@@ -167,20 +193,23 @@ export default function SubscriptionDashboard() {
                                                 <div className="flex flex-col">
                                                     <p className="text-sm font-medium text-gray-900 truncate">{inv.invoice_number}</p>
                                                     <p className="text-sm text-gray-500 mt-1 flex items-center">
-                                                        {new Date(inv.createdAt).toLocaleDateString()}
+                                                        {new Date(inv.createdAt).toLocaleDateString()} · {inv.status} · {inv.payment_method || 'Razorpay'}
                                                     </p>
+                                                    <p className="text-xs text-gray-400 font-mono mt-1">{inv.transaction_id || inv.razorpay_payment_id}</p>
                                                 </div>
                                                 <div className="flex items-center space-x-4">
                                                     <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
                                                         ₹{(inv.amount / 100).toFixed(2)}
                                                     </span>
-                                                    <button
-                                                        onClick={() => handleDownloadInvoice(inv._id, inv.invoice_number)}
-                                                        className="text-orange-600 hover:text-orange-900 flex items-center text-sm font-medium bg-orange-50 px-3 py-1.5 rounded"
-                                                    >
-                                                        <FileDown className="w-4 h-4 mr-1" />
-                                                        PDF
-                                                    </button>
+                                                    {inv.status === 'captured' && (
+                                                        <button
+                                                            onClick={() => handleDownloadInvoice(inv._id, inv.invoice_number)}
+                                                            className="text-orange-600 hover:text-orange-900 flex items-center text-sm font-medium bg-orange-50 px-3 py-1.5 rounded"
+                                                        >
+                                                            <FileDown className="w-4 h-4 mr-1" />
+                                                            PDF
+                                                        </button>
+                                                    )}
                                                 </div>
                                             </div>
                                         </li>

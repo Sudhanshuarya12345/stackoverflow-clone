@@ -306,8 +306,19 @@ const QuestionDetail = ({ questionId }: any) => {
       toast.error("Failed to Vote question");
     }
   };
-  const handlebookmark = () => {
-    setquestion((prev: any) => ({ ...prev, isBookmarked: !prev.isBookmarked }));
+  const handlebookmark = async () => {
+    if (!user) {
+      toast.info("Please login to continue")
+      router.push("/auth")
+      return
+    }
+    try {
+      const res = await axiosInstance.patch(`/question/bookmark/${question._id}`);
+      setquestion((prev: any) => ({ ...prev, isBookmarked: res.data.bookmarked }));
+      toast.success(res.data.bookmarked ? "Bookmarked" : "Bookmark removed");
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || "Failed to update bookmark");
+    }
   };
   const handleSubmitanswer = async () => {
     if (!user) {

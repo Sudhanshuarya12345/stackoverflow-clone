@@ -14,6 +14,7 @@ export const generateInvoicePdfBuffer = (paymentDoc, userDoc, planDetails) => {
       doc.fontSize(20).text("Invoice", { align: "right" });
       doc.fontSize(10).text(`Invoice Number: ${paymentDoc.invoice_number}`, { align: "right" });
       doc.text(`Date: ${new Date(paymentDoc.createdAt).toLocaleDateString()}`, { align: "right" });
+      doc.text(`Transaction ID: ${paymentDoc.transaction_id || paymentDoc.razorpay_payment_id}`, { align: "right" });
       doc.moveDown();
 
       // Bill To
@@ -32,7 +33,13 @@ export const generateInvoicePdfBuffer = (paymentDoc, userDoc, planDetails) => {
       
       const rowTop = hrY + 10;
       doc.text(`Subscription - ${planDetails.name} Plan`, 50, rowTop);
-      doc.text(`INR ${(paymentDoc.amount / 100).toFixed(2)}`, 400, rowTop, { align: "right" });
+      doc.text(`${paymentDoc.currency || "INR"} ${(paymentDoc.amount / 100).toFixed(2)}`, 400, rowTop, { align: "right" });
+
+      doc.moveDown(4);
+      doc.fontSize(11).text(`Billing Period: ${paymentDoc.billing_period_start ? new Date(paymentDoc.billing_period_start).toLocaleDateString() : "N/A"} - ${paymentDoc.billing_period_end ? new Date(paymentDoc.billing_period_end).toLocaleDateString() : "N/A"}`);
+      doc.text(`Payment Method: ${paymentDoc.payment_method || "Razorpay"}`);
+      doc.text(`GST/Tax: ${paymentDoc.currency || "INR"} ${((paymentDoc.tax_amount || 0) / 100).toFixed(2)}`);
+      doc.text(`Total Paid: ${paymentDoc.currency || "INR"} ${(paymentDoc.amount / 100).toFixed(2)}`);
 
       doc.end();
     } catch (err) {
