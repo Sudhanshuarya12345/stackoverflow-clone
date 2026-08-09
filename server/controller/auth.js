@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import user from "../models/auth.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import { BADGES } from "../config/badges.js";
 export const Signup = async (req, res) => {
   const { name, email, password } = req.body;
   try {
@@ -59,6 +60,14 @@ export const Login = async (req, res) => {
 export const getallusers = async (req, res) => {
   try {
     const alluser = await user.find().select("-password").lean();
+    alluser.forEach((u) => {
+      if (Array.isArray(u.earnedBadges)) {
+        u.earnedBadges = u.earnedBadges.map((b) => ({
+          ...b,
+          name: BADGES[b.key]?.name || b.name || "Badge",
+        }));
+      }
+    });
     const planRank = { gold: 3, silver: 2, bronze: 1, free: 0 };
     alluser.sort((a, b) => (planRank[b.plan] || 0) - (planRank[a.plan] || 0));
     res.status(200).json({ data: alluser });

@@ -9,7 +9,7 @@ import { FileDown, Calendar, CreditCard, Clock, CheckCircle, AlertCircle, Star, 
 import PlanBadge from "@/components/PlanBadge";
 
 export default function SubscriptionDashboard() {
-    const { user, updateLocalUser } = useAuth();
+    const { user, updateLocalUser, authReady } = useAuth();
     const [subData, setSubData] = useState<any>(null);
     const [invoices, setInvoices] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
@@ -87,6 +87,14 @@ export default function SubscriptionDashboard() {
             toast.error("Failed to download invoice");
         }
     };
+
+    if (!authReady) {
+        return (
+            <Mainlayout>
+                <div className="flex justify-center p-12"><p>Loading...</p></div>
+            </Mainlayout>
+        );
+    }
 
     if (!user) {
         return (

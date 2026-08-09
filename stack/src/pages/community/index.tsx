@@ -8,12 +8,13 @@ import Link from "next/link";
 import { Crown } from "lucide-react";
 
 export default function CommunityPage() {
-  const { user } = useAuth();
+  const { user, authReady } = useAuth();
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [denied, setDenied] = useState(false);
 
   useEffect(() => {
+    if (!authReady) return;
     if (!user) {
       setLoading(false);
       return;
@@ -29,7 +30,17 @@ export default function CommunityPage() {
         }
       })
       .finally(() => setLoading(false));
-  }, [user]);
+  }, [user, authReady]);
+
+  if (!authReady) {
+    return (
+      <Mainlayout>
+        <div className="max-w-2xl mx-auto py-16 text-center">
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      </Mainlayout>
+    );
+  }
 
   if (!user) {
     return (

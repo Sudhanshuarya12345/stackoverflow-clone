@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import question from "../models/question.js";
+import { evaluateBadges } from "../services/badgeService.js";
 
 export const Askanswer = async (req, res) => {
   const { id: _id } = req.params;
@@ -17,6 +18,7 @@ export const Askanswer = async (req, res) => {
       },
       { new: true }
     );
+    await evaluateBadges(userid, "answers");
     res.status(200).json({ data: updatequestion });
   } catch (error) {
     console.log(error);
