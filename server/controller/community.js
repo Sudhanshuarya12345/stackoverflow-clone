@@ -2,7 +2,7 @@ import User from "../models/auth.js";
 
 export const getExclusiveCommunity = async (req, res) => {
   try {
-    const members = await User.countDocuments({ plan: { $in: ["silver", "gold"] } });
+    const members = await User.countDocuments({ plan: "gold" });
     res.status(200).json({
       message: "Welcome to the Gold exclusive community.",
       content: {

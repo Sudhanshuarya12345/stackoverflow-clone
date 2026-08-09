@@ -8,7 +8,7 @@ import { useCallback, useEffect, useState } from "react";
 import PlanBadge from "@/components/PlanBadge";
 import { useAuth } from "@/lib/AuthContext";
 
-type SortMode = "newest" | "active" | "score" | "views" | "answered" | "bountied";
+type SortMode = "newest" | "active" | "score" | "views" | "answered" | "bountied" | "unanswered";
 
 type Question = {
   _id: string;
@@ -101,18 +101,20 @@ export default function Home() {
     if (searchText.trim()) params.q = searchText.trim();
     if (isBronzePlus) {
       if (tagText.trim()) params.tag = tagText.trim();
-      if (sortMode !== "newest") params.sort = sortMode;
+      if (sortMode === "unanswered") params.unanswered = "true";
+      else if (sortMode !== "newest") params.sort = sortMode;
     }
     fetchQuestions(params);
   };
 
-  const handleSort = (mode: SortMode | "unanswered") => {
+  const handleSort = (mode: SortMode) => {
     if (mode === "unanswered") {
       if (!isBronzePlus) {
         setError("Advanced filters (unanswered) require a Bronze plan or higher.");
         router.push("/subscription");
         return;
       }
+      setSortMode("unanswered");
       const params: Record<string, string> = {};
       if (searchText.trim()) params.q = searchText.trim();
       if (tagText.trim()) params.tag = tagText.trim();
@@ -130,6 +132,7 @@ export default function Home() {
     if (searchText.trim()) params.q = searchText.trim();
     if (tagText.trim()) params.tag = tagText.trim();
     if (mode !== "newest") params.sort = mode;
+    if (mode === "bountied") params.bountied = "true";
     fetchQuestions(params);
   };
 
@@ -143,7 +146,8 @@ export default function Home() {
     setShowFilters(true);
     const params: Record<string, string> = { tag };
     if (searchText.trim()) params.q = searchText.trim();
-    if (sortMode !== "newest") params.sort = sortMode;
+    if (sortMode === "unanswered") params.unanswered = "true";
+    else if (sortMode !== "newest") params.sort = sortMode;
     fetchQuestions(params);
   };
 

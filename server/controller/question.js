@@ -6,12 +6,15 @@ import { userMeetsPlan } from "../services/subscriptionAccess.js";
 const BOUNTY_AMOUNTS = [50, 100, 200, 500];
 const BOUNTY_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
 
-const expireOldBounties = async () => {
+export const expireOldBounties = async () => {
   await question.updateMany(
     { "bounty.status": "active", "bounty.expiresAt": { $lte: new Date() } },
     { $set: { "bounty.status": "expired" } }
   );
 };
+
+let lastBountyExpiryRun = 0;
+const BOUNTY_EXPIRY_INTERVAL_MS = 10 * 60 * 1000;
 
 const getScore = (q) => (q.upvote?.length || 0) - (q.downvote?.length || 0);
 
@@ -39,7 +42,11 @@ export const Askquestion = async (req, res) => {
 
 export const getallquestion = async (req, res) => {
   try {
-    await expireOldBounties();
+    const now = Date.now();
+    if (now - lastBountyExpiryRun >= BOUNTY_EXPIRY_INTERVAL_MS) {
+      lastBountyExpiryRun = now;
+      await expireOldBounties();
+    }
 
 const { tag, unanswered, q, bountied, sort } = req.query;
     const usesAdvancedFilters = Boolean(tag || unanswered === "true" || bountied === "true" || sort);
@@ -143,16 +150,18 @@ export const startBounty = async (req, res) => {
       return res.status(409).json({ message: "This question already has an active bounty." });
     }
 
-    const currentUser = await User.findById(req.userid).select("reputation");
-    const currentReputation = currentUser?.reputation ?? 100;
-    if (!currentUser || currentReputation < amount) {
-      return res.status(400).json({ message: "Not enough reputation to start this bounty." });
-    }
-    const user = await User.findByIdAndUpdate(
-      req.userid,
-      { $set: { reputation: currentReputation - amount } },
+await User.updateOne(
+      { _id: req.userid, reputation: { $exists: false } },
+      { $set: { reputation: 100 } }
+    );
+    const user = await User.findOneAndUpdate(
+      { _id: req.userid, reputation: { $gte: amount } },
+      { $inc: { reputation: -amount } },
       { new: true }
     ).select("reputation");
+    if (!user) {
+      return res.status(400).json({ message: "Not enough reputation to start this bounty." });
+    }
 
     const now = new Date();
     const updated = await question.findOneAndUpdate(
@@ -217,11 +226,13 @@ export const awardBounty = async (req, res) => {
       return res.status(400).json({ message: "You cannot award a bounty to your own answer." });
     }
 
-    questionDoc.bounty.status = "awarded";
+questionDoc.bounty.status = "awarded";
     questionDoc.bounty.awardedToAnswerId = answerId;
     questionDoc.bounty.awardedToUserId = answer.userid;
     questionDoc.bounty.awardedAt = new Date();
-    answer.isAccepted = true;
+    questionDoc.answer.forEach((ans) => {
+      ans.isAccepted = String(ans._id) === String(answerId);
+    });
     questionDoc.acceptedAnswerId = answerId;
     await questionDoc.save();
 

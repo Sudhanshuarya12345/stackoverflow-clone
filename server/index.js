@@ -10,6 +10,7 @@ import subscriptionroutes from "./routes/subscription.js"
 import communityroutes from "./routes/community.js"
 import supportroutes from "./routes/support.js"
 import { expireDueSubscriptions } from "./services/subscriptionAccess.js";
+import { expireOldBounties } from "./controller/question.js";
 const app = express();
 dotenv.config();
 
@@ -38,11 +39,16 @@ mongoose
     app.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);
     });
-    setInterval(async () => {
+setInterval(async () => {
       try {
         await expireDueSubscriptions();
       } catch (error) {
         console.error("Subscription expiry job failed:", error);
+      }
+      try {
+        await expireOldBounties();
+      } catch (error) {
+        console.error("Bounty expiry job failed:", error);
       }
     }, 60 * 60 * 1000);
   })
