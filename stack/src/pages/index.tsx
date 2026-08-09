@@ -42,13 +42,6 @@ const PLAN_LEVELS: Record<string, number> = {
 const getQuestionScore = (item: Question) =>
   (item.upvote?.length || 0) - (item.downvote?.length || 0);
 
-const getLastActivityTime = (item: Question) => {
-  const answerTimes = (item.answer || []).map((answer) =>
-    new Date(answer.answeredon || item.askedon).getTime()
-  );
-  return Math.max(new Date(item.askedon).getTime(), ...answerTimes);
-};
-
 export default function Home() {
   const { user } = useAuth();
   const [question, setquestion] = useState<Question[]>([]);
@@ -90,13 +83,26 @@ export default function Home() {
   );
 
   useEffect(() => {
-    fetchQuestions({});
-  }, [fetchQuestions]);
+    const qParam = typeof router.query.q === "string" ? router.query.q : "";
+    if (qParam) {
+      setSearchText(qParam);
+      fetchQuestions({ q: qParam });
+    } else {
+      fetchQuestions({});
+    }
+  }, [fetchQuestions, router.query.q]);
 
   const applySearch = () => {
+    if (tagText.trim() && !isBronzePlus) {
+      setError("Tag filtering requires a Bronze plan or higher.");
+      return;
+    }
     const params: Record<string, string> = {};
     if (searchText.trim()) params.q = searchText.trim();
-    if (isBronzePlus && sortMode !== "newest") params.sort = sortMode;
+    if (isBronzePlus) {
+      if (tagText.trim()) params.tag = tagText.trim();
+      if (sortMode !== "newest") params.sort = sortMode;
+    }
     fetchQuestions(params);
   };
 
@@ -107,8 +113,11 @@ export default function Home() {
         router.push("/subscription");
         return;
       }
-      setTagText("");
-      fetchQuestions({ q: searchText.trim() || undefined, unanswered: "true" });
+      const params: Record<string, string> = {};
+      if (searchText.trim()) params.q = searchText.trim();
+      if (tagText.trim()) params.tag = tagText.trim();
+      params.unanswered = "true";
+      fetchQuestions(params);
       return;
     }
     if (mode !== "newest" && !isBronzePlus) {
@@ -119,7 +128,22 @@ export default function Home() {
     setSortMode(mode);
     const params: Record<string, string> = {};
     if (searchText.trim()) params.q = searchText.trim();
+    if (tagText.trim()) params.tag = tagText.trim();
     if (mode !== "newest") params.sort = mode;
+    fetchQuestions(params);
+  };
+
+  const handleTagClick = (tag: string) => {
+    if (!isBronzePlus) {
+      setError("Tag filtering requires a Bronze plan or higher.");
+      router.push("/subscription");
+      return;
+    }
+    setTagText(tag);
+    setShowFilters(true);
+    const params: Record<string, string> = { tag };
+    if (searchText.trim()) params.q = searchText.trim();
+    if (sortMode !== "newest") params.sort = sortMode;
     fetchQuestions(params);
   };
 
@@ -133,17 +157,13 @@ export default function Home() {
 
   const bountiedCount = question.filter((item) => item.bounty?.status === "active").length;
 
-  // Client-side tag filter on top of server results (tag filter is a Bronze+ backend param too)
-  const tagQuery = tagText.trim().toLowerCase();
-  const displayedQuestions = tagQuery
-    ? question.filter((item) => item.questiontags.some((tag) => tag.toLowerCase().includes(tagQuery)))
-    : question;
-
   const buttonClass = (mode: string) =>
     `px-2 sm:px-3 py-1 rounded text-xs sm:text-sm ${sortMode === mode
       ? "bg-gray-200 text-gray-800"
       : "text-gray-600 hover:bg-gray-100"
     }`;
+
+  const showPageSpinner = loading && question.length === 0;
 
   return (
     <Mainlayout>
@@ -160,7 +180,7 @@ export default function Home() {
         <div className="w-full">
           <div className="flex flex-col lg:flex-row items-start lg:items-center mb-4 text-sm gap-3 lg:gap-4">
             <span className="text-gray-600 whitespace-nowrap">
-              {displayedQuestions.length} {displayedQuestions.length === 1 ? "question" : "questions"}
+              {question.length} {question.length === 1 ? "question" : "questions"}
             </span>
             <div className="flex w-full flex-wrap gap-1 sm:gap-2">
               <button onClick={() => handleSort("newest")} className={buttonClass("newest")}>
@@ -210,8 +230,9 @@ export default function Home() {
               <input
                 value={tagText}
                 onChange={(event) => setTagText(event.target.value)}
-                placeholder="Filter by tag"
-                className="rounded border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                disabled={!isBronzePlus}
+                placeholder={isBronzePlus ? "Filter by tag" : "Filter by tag (Bronze+)"}
+                className="rounded border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-400"
               />
               <button
                 onClick={applySearch}
@@ -242,16 +263,16 @@ export default function Home() {
             </div>
           )}
           <div className="space-y-4">
-            {loading ? (
+            {showPageSpinner ? (
               <div className="flex justify-center py-12">
                 <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-500 border-t-transparent"></div>
               </div>
-            ) : displayedQuestions.length === 0 ? (
+            ) : question.length === 0 ? (
               <div className="rounded border border-dashed border-gray-300 p-6 text-center text-sm text-gray-500">
                 No questions match the selected filters.
               </div>
             ) : (
-              displayedQuestions.map((question) => (
+              question.map((question) => (
                 <div key={question._id} className="border-b border-gray-200 pb-4">
                   <div className="flex flex-col sm:flex-row gap-4">
                     <div className="grid grid-cols-3 sm:flex sm:flex-col items-center text-sm text-gray-600 sm:w-16 lg:w-20 gap-3 sm:gap-2">
@@ -292,7 +313,7 @@ export default function Home() {
                       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
                         <div className="flex flex-wrap gap-1">
                           {question.questiontags.map((tag) => (
-                            <button key={tag} onClick={() => { setTagText(tag); setShowFilters(true); }}>
+                            <button key={tag} onClick={() => handleTagClick(tag)}>
                               <Badge
                                 variant="secondary"
                                 className="text-xs bg-blue-100 text-blue-800 hover:bg-blue-200 cursor-pointer"

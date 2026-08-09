@@ -41,8 +41,8 @@ export const getallquestion = async (req, res) => {
   try {
     await expireOldBounties();
 
-    const { tag, unanswered, q, bountied, sort } = req.query;
-    const usesAdvancedFilters = Boolean(tag || unanswered === "true" || q || bountied === "true");
+const { tag, unanswered, q, bountied, sort } = req.query;
+    const usesAdvancedFilters = Boolean(tag || unanswered === "true" || bountied === "true" || sort);
 
     if (usesAdvancedFilters) {
       if (!req.userid || !(await userMeetsPlan(req.userid, "bronze"))) {
