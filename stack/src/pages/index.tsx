@@ -43,7 +43,7 @@ const getQuestionScore = (item: Question) =>
   (item.upvote?.length || 0) - (item.downvote?.length || 0);
 
 export default function Home() {
-  const { user } = useAuth();
+  const { user, authReady } = useAuth();
   const [question, setquestion] = useState<Question[]>([]);
   const [loading, setloading] = useState(true);
   const [sortMode, setSortMode] = useState<SortMode>("newest");
@@ -51,32 +51,58 @@ export default function Home() {
   const [searchText, setSearchText] = useState("");
   const [tagText, setTagText] = useState("");
   const [error, setError] = useState("");
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [loadingMore, setLoadingMore] = useState(false);
   const router = useRouter();
 
   const planLevel = PLAN_LEVELS[user?.plan] ?? 0;
-  const isBronzePlus = planLevel >= 1;
+  const isBronzePlus = authReady && planLevel >= 1;
 
   const fetchQuestions = useCallback(
-    async (params: Record<string, string | undefined>) => {
-      setloading(true);
-      setError("");
-      try {
-        const query = new URLSearchParams();
-        Object.entries(params).forEach(([key, value]) => {
-          if (value) query.set(key, value);
-        });
-        const res = await axiosInstance.get(
-          query.toString() ? `/question/getallquestion?${query.toString()}` : "/question/getallquestion"
-        );
-        setquestion(res.data.data || []);
-      } catch (error: any) {
-        if (error.response?.status === 403) {
-          setError(error.response?.data?.message || "Advanced filters require a Bronze plan or higher.");
-        } else {
-          console.log(error);
+    async (params: Record<string, string | undefined>, { append = false }: { append?: boolean } = {}) => {
+      const doFetch = async (targetPage: number, appendMode: boolean) => {
+        if (appendMode) setLoadingMore(true);
+        else setloading(true);
+        setError("");
+        try {
+          const query = new URLSearchParams();
+          Object.entries(params).forEach(([key, value]) => {
+            if (value) query.set(key, value);
+          });
+          query.set("page", String(targetPage));
+          query.set("limit", "15");
+          const res = await axiosInstance.get(
+            query.toString() ? `/question/getallquestion?${query.toString()}` : "/question/getallquestion"
+          );
+          const { data = [], total: fetchedTotal = 0, totalPages: fetchedTotalPages = 1 } = res.data;
+          setTotal(fetchedTotal);
+          setTotalPages(fetchedTotalPages || 1);
+          setPage(targetPage);
+          if (appendMode) {
+            setquestion((prev) => [...prev, ...(data || [])]);
+          } else {
+            setquestion(data || []);
+          }
+        } catch (error: any) {
+          if (error.response?.status === 403) {
+            setError(error.response?.data?.message || "Advanced filters require a Bronze plan or higher.");
+          } else {
+            console.log(error);
+          }
+        } finally {
+          if (appendMode) setLoadingMore(false);
+          else setloading(false);
         }
-      } finally {
-        setloading(false);
+      };
+      if (append) {
+        setPage((prevPage) => {
+          doFetch(prevPage + 1, true);
+          return prevPage;
+        });
+      } else {
+        doFetch(1, false);
       }
     },
     []
@@ -92,48 +118,39 @@ export default function Home() {
     }
   }, [fetchQuestions, router.query.q]);
 
+  const buildParams = (modeOverride?: SortMode) => {
+    const mode = modeOverride ?? sortMode;
+    const params: Record<string, string> = {};
+    if (searchText.trim()) params.q = searchText.trim();
+    if (isBronzePlus) {
+      if (tagText.trim()) params.tag = tagText.trim();
+      if (mode === "unanswered") params.unanswered = "true";
+      else if (mode !== "newest") params.sort = mode;
+      if (mode === "bountied") params.bountied = "true";
+    }
+    return params;
+  };
+
   const applySearch = () => {
     if (tagText.trim() && !isBronzePlus) {
       setError("Tag filtering requires a Bronze plan or higher.");
       return;
     }
-    const params: Record<string, string> = {};
-    if (searchText.trim()) params.q = searchText.trim();
-    if (isBronzePlus) {
-      if (tagText.trim()) params.tag = tagText.trim();
-      if (sortMode === "unanswered") params.unanswered = "true";
-      else if (sortMode !== "newest") params.sort = sortMode;
-    }
-    fetchQuestions(params);
+    fetchQuestions(buildParams());
   };
 
   const handleSort = (mode: SortMode) => {
-    if (mode === "unanswered") {
-      if (!isBronzePlus) {
-        setError("Advanced filters (unanswered) require a Bronze plan or higher.");
-        router.push("/subscription");
-        return;
-      }
-      setSortMode("unanswered");
-      const params: Record<string, string> = {};
-      if (searchText.trim()) params.q = searchText.trim();
-      if (tagText.trim()) params.tag = tagText.trim();
-      params.unanswered = "true";
-      fetchQuestions(params);
-      return;
-    }
     if (mode !== "newest" && !isBronzePlus) {
-      setError("Advanced sorting requires a Bronze plan or higher.");
+      setError(
+        mode === "unanswered"
+          ? "Advanced filters (unanswered) require a Bronze plan or higher."
+          : "Advanced sorting requires a Bronze plan or higher."
+      );
       router.push("/subscription");
       return;
     }
     setSortMode(mode);
-    const params: Record<string, string> = {};
-    if (searchText.trim()) params.q = searchText.trim();
-    if (tagText.trim()) params.tag = tagText.trim();
-    if (mode !== "newest") params.sort = mode;
-    if (mode === "bountied") params.bountied = "true";
-    fetchQuestions(params);
+    fetchQuestions(buildParams(mode));
   };
 
   const handleTagClick = (tag: string) => {
@@ -144,11 +161,7 @@ export default function Home() {
     }
     setTagText(tag);
     setShowFilters(true);
-    const params: Record<string, string> = { tag };
-    if (searchText.trim()) params.q = searchText.trim();
-    if (sortMode === "unanswered") params.unanswered = "true";
-    else if (sortMode !== "newest") params.sort = sortMode;
-    fetchQuestions(params);
+    fetchQuestions({ ...buildParams(), tag });
   };
 
   const clearFilters = () => {
@@ -157,6 +170,10 @@ export default function Home() {
     setSortMode("newest");
     setError("");
     fetchQuestions({});
+  };
+
+  const loadMore = () => {
+    fetchQuestions(buildParams(), { append: true });
   };
 
   const bountiedCount = question.filter((item) => item.bounty?.status === "active").length;
@@ -184,7 +201,7 @@ export default function Home() {
         <div className="w-full">
           <div className="flex flex-col lg:flex-row items-start lg:items-center mb-4 text-sm gap-3 lg:gap-4">
             <span className="text-gray-600 whitespace-nowrap">
-              {question.length} {question.length === 1 ? "question" : "questions"}
+              {total} {total === 1 ? "question" : "questions"}
             </span>
             <div className="flex w-full flex-wrap gap-1 sm:gap-2">
               <button onClick={() => handleSort("newest")} className={buttonClass("newest")}>
@@ -348,6 +365,17 @@ export default function Home() {
               ))
             )}
           </div>
+          {page < totalPages && question.length > 0 && (
+            <div className="mt-4 flex justify-center">
+              <button
+                onClick={loadMore}
+                disabled={loadingMore}
+                className="px-4 py-2 border border-gray-300 text-gray-700 hover:bg-gray-50 rounded text-sm disabled:opacity-50"
+              >
+                {loadingMore ? "Loading..." : "Load More"}
+              </button>
+            </div>
+          )}
         </div>
       </main>
     </Mainlayout>

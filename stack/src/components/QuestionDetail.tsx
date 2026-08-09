@@ -262,10 +262,8 @@ const QuestionDetail = ({ questionId }: any) => {
   useEffect(() => {
     const fetchuser = async () => {
       try {
-        const res = await axiosInstance.get("/question/getallquestion");
-        const matchedquestion = res.data.data.find(
-          (u: any) => u._id === questionId
-        );
+        const res = await axiosInstance.get(`/question/${questionId}`);
+        const matchedquestion = res.data.data;
         setanswer(matchedquestion?.answer || []);
         setquestion(matchedquestion);
       } catch (error) {
