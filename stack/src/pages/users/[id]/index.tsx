@@ -15,7 +15,7 @@ import { Textarea } from "@/components/ui/textarea";
 import Mainlayout from "@/layout/Mainlayout";
 import { useAuth } from "@/lib/AuthContext";
 import axiosInstance from "@/lib/axiosinstance";
-import { Calendar, CreditCard, Edit, Plus, X } from "lucide-react";
+import { Calendar, CreditCard, Edit, Plus, Star, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import React, { useEffect, useState } from "react";
@@ -53,6 +53,8 @@ const index = () => {
     tags: users?.tags || [],
   });
   const [newTag, setNewTag] = useState("");
+  const [showBadges, setShowBadges] = useState(false);
+  const [badgeFilter, setBadgeFilter] = useState("all");
 
   useEffect(() => {
     const fetchuser = async () => {
@@ -118,6 +120,20 @@ const index = () => {
   };
 
   const currentUserId = user?._id;
+
+  const earnedBadges: any[] = users?.earnedBadges || [];
+  const goldCount = earnedBadges.filter((b) => b.tier === "gold").length;
+  const silverCount = earnedBadges.filter((b) => b.tier === "silver").length;
+  const bronzeCount = earnedBadges.filter((b) => b.tier === "bronze").length;
+  const filteredBadges =
+    badgeFilter === "all"
+      ? earnedBadges
+      : earnedBadges.filter((b) => b.tier === badgeFilter);
+  const tierColor: Record<string, string> = {
+    gold: "bg-yellow-500",
+    silver: "bg-gray-400",
+    bronze: "bg-amber-600",
+  };
   const isOwnProfile = id === currentUserId;
   return (
     <Mainlayout>
@@ -298,24 +314,89 @@ const index = () => {
                 Member since{" "}
                 {new Date(users.joinDate).toISOString().split("T")[0]}
               </div>
+              <div className="flex items-center">
+                <Star className="w-4 h-4 mr-1 text-yellow-500" />
+                Reputation: <span className="font-semibold text-gray-800 ml-1">{users.reputation ?? 100}</span>
+              </div>
             </div>
-            <div className="flex flex-wrap items-center space-x-6 text-sm">
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
               <div className="flex items-center">
                 <div className="w-3 h-3 bg-yellow-500 rounded-full mr-2"></div>
-                <span className="font-semibold">5</span>
+                <span className="font-semibold">{goldCount}</span>
                 <span className="text-gray-600 ml-1">gold badges</span>
               </div>
               <div className="flex items-center">
                 <div className="w-3 h-3 bg-gray-400 rounded-full mr-2"></div>
-                <span className="font-semibold">23</span>
+                <span className="font-semibold">{silverCount}</span>
                 <span className="text-gray-600 ml-1">silver badges</span>
               </div>
               <div className="flex items-center">
                 <div className="w-3 h-3 bg-amber-600 rounded-full mr-2"></div>
-                <span className="font-semibold">45</span>
+                <span className="font-semibold">{bronzeCount}</span>
                 <span className="text-gray-600 ml-1">bronze badges</span>
               </div>
+              <button
+                onClick={() => setShowBadges((current) => !current)}
+                className="px-3 py-1 border border-gray-300 text-gray-600 hover:bg-gray-50 rounded text-xs"
+              >
+                {showBadges ? "Close" : "Details"}
+              </button>
             </div>
+            {showBadges && (
+              <Card className="mt-4">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-semibold">Badges</CardTitle>
+                  <div className="flex items-center gap-1">
+                    {["all", "gold", "silver", "bronze"].map((t) => (
+                      <button
+                        key={t}
+                        onClick={() => setBadgeFilter(t)}
+                        className={`px-2 py-0.5 rounded text-xs capitalize ${
+                          badgeFilter === t
+                            ? "bg-gray-200 text-gray-800"
+                            : "text-gray-600 hover:bg-gray-100"
+                        }`}
+                      >
+                        {t}
+                      </button>
+                    ))}
+                    <button
+                      onClick={() => setShowBadges(false)}
+                      className="ml-1 text-gray-400 hover:text-gray-600"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {filteredBadges.length === 0 ? (
+                    <p className="text-sm text-gray-500">
+                      No badges yet — ask a question to earn your first badge.
+                    </p>
+                  ) : (
+                    <ul className="space-y-2">
+                      {filteredBadges.map((badge) => (
+                        <li
+                          key={badge.key}
+                          className="flex items-center justify-between text-sm"
+                        >
+                          <div className="flex items-center">
+                            <div
+                              className={`w-3 h-3 rounded-full mr-2 ${tierColor[badge.tier] || "bg-gray-300"}`}
+                            ></div>
+                            <span className="font-medium capitalize">{badge.name}</span>
+                          </div>
+                          <span className="text-xs text-gray-500">
+                            awarded{" "}
+                            {new Date(badge.awardedAt).toISOString().split("T")[0]}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </CardContent>
+              </Card>
+            )}
           </div>
         </div>
         {isOwnProfile && (

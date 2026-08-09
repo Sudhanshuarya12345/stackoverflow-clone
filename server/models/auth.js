@@ -13,6 +13,23 @@ const userschema = mongoose.Schema({
   questionResetDate: { type: String },
 activeSubscriptionId: { type: mongoose.Schema.Types.ObjectId, ref: "Subscription" },
   bookmarks: { type: [String], default: [] },
+  earnedBadges: {
+    type: [
+      {
+        key: { type: String },
+        tier: { type: String, enum: ["gold", "silver", "bronze"] },
+        awardedAt: { type: Date, default: Date.now },
+      },
+    ],
+    default: [],
+  },
+  badgeCounters: {
+    questions: { type: Number, default: 0 },
+    answers: { type: Number, default: 0 },
+    acceptedAnswers: { type: Number, default: 0 },
+    questionUpvotes: { type: Number, default: 0 },
+    bountiesWon: { type: Number, default: 0 },
+  },
   billingDetails: {
     billingName: { type: String },
     billingEmail: { type: String },

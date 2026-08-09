@@ -1,9 +1,24 @@
 import { useState } from "react";
 import { createContext } from "react";
+import { useEffect } from "react";
 import axiosInstance from "./axiosinstance";
+import Router from "next/router";
 import { toast } from "react-toastify";
 import { useContext } from "react";
 const AuthContext = createContext();
+
+const decodeTokenExp = (token) => {
+  try {
+    const payload = token.split(".")[1];
+    const decoded = JSON.parse(
+      atob(payload.replace(/-/g, "+").replace(/_/g, "/"))
+    );
+    return decoded.exp ? decoded.exp * 1000 : null;
+  } catch {
+    return null;
+  }
+};
+const WARN_BEFORE_MS = 10 * 60 * 1000;
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(() => {
@@ -13,8 +28,46 @@ export const AuthProvider = ({ children }) => {
     }
     return null;
   });
+  const [authReady, setAuthReady] = useState(false);
   const [loading, setloading] = useState(false);
   const [error, seterror] = useState(null);
+
+  useEffect(() => {
+    setAuthReady(true);
+  }, []);
+
+  useEffect(() => {
+    let warnTimer;
+    let expireTimer;
+    const stored = localStorage.getItem("user");
+    if (stored) {
+      const token = JSON.parse(stored).token;
+      const exp = token ? decodeTokenExp(token) : null;
+      if (exp) {
+        const msLeft = exp - Date.now();
+        if (msLeft <= 0) {
+          localStorage.removeItem("user");
+          setUser(null);
+        } else {
+          warnTimer = setTimeout(() => {
+            toast.warn("Your session expires soon — please log in again to continue.");
+          }, Math.max(0, msLeft - WARN_BEFORE_MS));
+          expireTimer = setTimeout(() => {
+            localStorage.removeItem("user");
+            setUser(null);
+            toast.warn("Session expired — you have been logged out.");
+            if (window.location.pathname !== "/auth") {
+              Router.push("/auth");
+            }
+          }, msLeft);
+        }
+      }
+    }
+    return () => {
+      clearTimeout(warnTimer);
+      clearTimeout(expireTimer);
+    };
+  }, [user]);
 
   const Signup = async ({ name, email, password }) => {
     setloading(true);
@@ -75,7 +128,7 @@ export const AuthProvider = ({ children }) => {
   };
   return (
     <AuthContext.Provider
-      value={{ user, Signup, Login, Logout, updateLocalUser, loading, error }}
+      value={{ user, Signup, Login, Logout, updateLocalUser, loading, error, authReady }}
     >
       {children}
     </AuthContext.Provider>

@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import question from "../models/question.js";
 import User from "../models/auth.js";
 import { userMeetsPlan } from "../services/subscriptionAccess.js";
+import { evaluateBadges, awardBadgeIfEarned } from "../services/badgeService.js";
 
 const BOUNTY_AMOUNTS = [50, 100, 200, 500];
 const BOUNTY_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
@@ -28,7 +29,7 @@ export const Askquestion = async (req, res) => {
   const postques = new question({ ...postquestiondata });
   try {
     await postques.save();
-
+    await evaluateBadges(req.userid, "questions");
     res.status(200).json({ data: postques });
   } catch (error) {
     if (req.userState?.reservedQuestionSlot) {
@@ -238,6 +239,8 @@ questionDoc.bounty.status = "awarded";
 
     if (mongoose.Types.ObjectId.isValid(answer.userid)) {
       await User.findByIdAndUpdate(answer.userid, { $inc: { reputation: questionDoc.bounty.amount } });
+      await evaluateBadges(answer.userid, "bountiesWon");
+      await awardBadgeIfEarned(answer.userid, "reputation");
     }
 
     res.status(200).json({ data: questionDoc });
@@ -340,6 +343,8 @@ export const acceptAnswer = async (req, res) => {
     });
     questionDoc.acceptedAnswerId = answerId;
     await questionDoc.save();
+    const acceptedAnswer = questionDoc.answer.id(answerId);
+    if (acceptedAnswer) await evaluateBadges(acceptedAnswer.userid, "acceptedAnswers");
     res.status(200).json({ data: questionDoc });
   } catch (error) {
     console.log(error);
@@ -380,6 +385,7 @@ export const votequestion = async (req, res) => {
       }
       if (upindex === -1) {
         questionDoc.upvote.push(userid);
+        await evaluateBadges(questionDoc.userid, "questionUpvotes");
       } else {
         questionDoc.upvote = questionDoc.upvote.filter((id) => id !== String(userid));
       }

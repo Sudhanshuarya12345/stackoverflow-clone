@@ -9,7 +9,7 @@ import { LifeBuoy, Mail, ShieldCheck, UserPlus, Zap } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 export default function SupportPage() {
-  const { user } = useAuth();
+  const { user, authReady } = useAuth();
   const [subject, setSubject] = useState("");
   const [message, setMessage] = useState("");
   const [tickets, setTickets] = useState<any[]>([]);
@@ -17,7 +17,8 @@ export default function SupportPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
-  useEffect(() => {
+useEffect(() => {
+    if (!authReady) return;
     if (!user) {
       setLoading(false);
       return;
@@ -34,7 +35,7 @@ export default function SupportPage() {
         toast.error("Failed to load support data");
       })
       .finally(() => setLoading(false));
-  }, [user]);
+  }, [user, authReady]);
 
   const handleSubmit = async () => {
     if (!subject.trim() || !message.trim()) {
@@ -54,6 +55,16 @@ export default function SupportPage() {
       setSubmitting(false);
     }
   };
+
+  if (!authReady) {
+    return (
+      <Mainlayout>
+        <div className="max-w-2xl mx-auto py-16 text-center">
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      </Mainlayout>
+    );
+  }
 
   if (!user) {
     return (
