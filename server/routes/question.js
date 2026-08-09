@@ -3,6 +3,7 @@ import {
   Askquestion,
   deletequestion,
   getallquestion,
+  getQuestionById,
   votequestion,
   toggleBookmark,
   addQuestionComment,
@@ -21,6 +22,7 @@ import optionalAuth from "../middleware/optionalAuth.js";
 
 router.post("/ask", auth, checkQuestionLimit, Askquestion);
 router.get("/getallquestion", optionalAuth, getallquestion);
+router.get("/:id", optionalAuth, getQuestionById);
 router.delete("/delete/:id", auth, deletequestion);
 router.patch("/vote/:id", auth, votequestion);
 router.patch("/bookmark/:id", auth, toggleBookmark);

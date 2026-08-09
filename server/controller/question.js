@@ -17,13 +17,6 @@ export const expireOldBounties = async () => {
 let lastBountyExpiryRun = 0;
 const BOUNTY_EXPIRY_INTERVAL_MS = 10 * 60 * 1000;
 
-const getScore = (q) => (q.upvote?.length || 0) - (q.downvote?.length || 0);
-
-const getLastActivity = (q) => {
-  const answerTimes = (q.answer || []).map((answer) => new Date(answer.answeredon || q.askedon).getTime());
-  return Math.max(new Date(q.askedon).getTime(), ...answerTimes);
-};
-
 export const Askquestion = async (req, res) => {
   const { postquestiondata } = req.body;
   const postques = new question({ ...postquestiondata });
@@ -49,7 +42,7 @@ export const getallquestion = async (req, res) => {
       await expireOldBounties();
     }
 
-const { tag, unanswered, q, bountied, sort } = req.query;
+    const { tag, unanswered, q, bountied, sort } = req.query;
     const usesAdvancedFilters = Boolean(tag || unanswered === "true" || bountied === "true" || sort);
 
     if (usesAdvancedFilters) {
@@ -64,10 +57,82 @@ const { tag, unanswered, q, bountied, sort } = req.query;
     if (q) filter.$text = { $search: q };
     if (bountied === "true") filter["bounty.status"] = "active";
 
-    const allquestion = await question.find(filter).sort({ askedon: -1 }).lean();
-    
-    const userIds = allquestion.map((q) => q.userid).filter(id => mongoose.Types.ObjectId.isValid(id));
-    allquestion.forEach(q => {
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit, 10) || 15));
+
+    const sortSpec = (() => {
+      switch (sort) {
+        case "active":
+          return { lastActivity: -1, askedon: -1 };
+        case "score":
+          return { score: -1, askedon: -1 };
+        case "views":
+          return { views: -1, askedon: -1 };
+        case "answered":
+          return { noofanswer: -1, askedon: -1 };
+        case "bountied":
+          return { bountyAmount: -1, askedon: -1 };
+        default:
+          return { planRank: -1, askedon: -1 };
+      }
+    })();
+
+    const [result] = await question.aggregate([
+      { $match: filter },
+      {
+        $lookup: {
+          from: "users",
+          localField: "userid",
+          foreignField: "_id",
+          as: "owner",
+        },
+      },
+      {
+        $addFields: {
+          planRank: {
+            $switch: {
+              branches: [
+                { case: { $eq: [{ $arrayElemAt: ["$owner.plan", 0] }, "gold"] }, then: 3 },
+                { case: { $eq: [{ $arrayElemAt: ["$owner.plan", 0] }, "silver"] }, then: 2 },
+                { case: { $eq: [{ $arrayElemAt: ["$owner.plan", 0] }, "bronze"] }, then: 1 },
+              ],
+              default: 0,
+            },
+          },
+          score: {
+            $subtract: [
+              { $size: { $ifNull: ["$upvote", []] } },
+              { $size: { $ifNull: ["$downvote", []] } },
+            ],
+          },
+          lastActivity: {
+            $max: {
+              $concatArrays: [
+                ["$askedon"],
+                { $ifNull: ["$answer.answeredon", []] },
+              ],
+            },
+          },
+          bountyAmount: { $ifNull: ["$bounty.amount", 0] },
+        },
+      },
+      {
+        $facet: {
+          total: [{ $count: "count" }],
+          items: [
+            { $sort: sortSpec },
+            { $skip: (page - 1) * limit },
+            { $limit: limit },
+          ],
+        },
+      },
+    ]);
+
+    const items = result.items || [];
+    const total = result.total[0]?.count || 0;
+
+    const userIds = items.map((q) => q.userid).filter(id => mongoose.Types.ObjectId.isValid(id));
+    items.forEach(q => {
       if (q.answer && q.answer.length > 0) {
         q.answer.forEach(a => {
           if (mongoose.Types.ObjectId.isValid(a.userid)) userIds.push(a.userid);
@@ -77,37 +142,55 @@ const { tag, unanswered, q, bountied, sort } = req.query;
 
     const uniqueUserIds = [...new Set(userIds)];
     const users = await User.find({ _id: { $in: uniqueUserIds } }).select("plan");
-    
+
     const userMap = {};
     users.forEach(u => userMap[u._id.toString()] = u.plan);
-    
-    const planRank = { gold: 3, silver: 2, bronze: 1, free: 0 };
-    const questionsWithPlan = allquestion.map(q => {
-      const qPlan = userMap[q.userid?.toString()] || "free";
+
+    const data = items.map(q => {
+      const qPlan = q.owner?.[0]?.plan || userMap[q.userid?.toString()] || "free";
       const mappedAnswers = (q.answer || []).map(a => ({
          ...a,
          userplan: userMap[a.userid?.toString()] || "free"
       }));
-      return { ...q, userplan: qPlan, answer: mappedAnswers };
-    }).sort((a, b) => {
-      if (sort === "active") return getLastActivity(b) - getLastActivity(a);
-      if (sort === "score") return getScore(b) - getScore(a);
-      if (sort === "views") return (b.views || 0) - (a.views || 0);
-      if (sort === "answered") return (b.noofanswer || 0) - (a.noofanswer || 0);
-      if (sort === "bountied") {
-        return (b.bounty?.amount || 0) - (a.bounty?.amount || 0);
-      }
-      if ((planRank[b.userplan] || 0) !== (planRank[a.userplan] || 0)) {
-        return (planRank[b.userplan] || 0) - (planRank[a.userplan] || 0);
-      }
-      return new Date(b.askedon) - new Date(a.askedon);
+      const { owner, ...rest } = q;
+      return { ...rest, userplan: qPlan, answer: mappedAnswers };
     });
 
-    res.status(200).json({ data: questionsWithPlan });
+    res.status(200).json({ data, total, page, limit, totalPages: Math.ceil(total / limit) });
   } catch (error) {
     console.log(error);
     res.status(500).json("something went wrong..");
     return;
+  }
+};
+
+export const getQuestionById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "question unavailable" });
+    }
+    const q = await question.findById(id).lean();
+    if (!q) return res.status(404).json({ message: "Question not found" });
+
+    const userIds = [q.userid].filter((u) => mongoose.Types.ObjectId.isValid(u));
+    (q.answer || []).forEach((a) => {
+      if (mongoose.Types.ObjectId.isValid(a.userid)) userIds.push(a.userid);
+    });
+    const users = await User.find({ _id: { $in: [...new Set(userIds)] } }).select("plan");
+    const userMap = {};
+    users.forEach((u) => { userMap[u._id.toString()] = u.plan; });
+
+    const mappedAnswers = (q.answer || []).map((a) => ({
+      ...a,
+      userplan: userMap[a.userid?.toString()] || "free",
+    }));
+    res.status(200).json({
+      data: { ...q, userplan: userMap[q.userid?.toString()] || "free", answer: mappedAnswers },
+    });
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ message: "Could not load question" });
   }
 };
 
