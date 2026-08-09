@@ -8,6 +8,7 @@ import answerroutes from "./routes/answer.js"
 import webhookroute from "./routes/webhook.js"
 import subscriptionroutes from "./routes/subscription.js"
 import communityroutes from "./routes/community.js"
+import supportroutes from "./routes/support.js"
 import { expireDueSubscriptions } from "./services/subscriptionAccess.js";
 const app = express();
 dotenv.config();
@@ -26,6 +27,7 @@ app.use('/question',questionroute)
 app.use('/answer',answerroutes)
 app.use('/api/subscriptions', subscriptionroutes)
 app.use('/api/community', communityroutes)
+app.use('/api/support', supportroutes)
 const PORT = process.env.PORT || 5000;
 const databaseurl = process.env.MONGODB_URL;
 

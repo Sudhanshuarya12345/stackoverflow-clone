@@ -2,7 +2,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import Mainlayout from "@/layout/Mainlayout";
 import axiosInstance from "@/lib/axiosinstance";
-import { Calendar, Search } from "lucide-react";
+import { Calendar, Crown, Search, Sparkles } from "lucide-react";
 import Link from "next/link";
 import React, { useEffect, useState } from "react";
 const users = [
@@ -34,6 +34,7 @@ const users = [
 const index = () => {
   const [users, setusers] = useState<any>(null);
   const [loading, setloading] = useState(true);
+  const [query, setQuery] = useState("");
   useEffect(() => {
     const fetchuser = async () => {
       try {
@@ -59,6 +60,9 @@ const index = () => {
       <div className="text-center text-gray-500 mt-4">No users found.</div>
     );
   }
+  const filteredUsers = users.filter((u: any) =>
+    u.name?.toLowerCase().includes(query.toLowerCase())
+  );
   return (
     <Mainlayout>
       <div className="max-w-6xl">
@@ -67,40 +71,83 @@ const index = () => {
         <div className="mb-6">
           <div className="relative max-w-md">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-            <Input placeholder="Filter by user" className="pl-10" />
+            <Input
+              placeholder="Filter by user"
+              className="pl-10"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
           </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {users.map((user: any) => (
-            <Link key={user._id} href={`/users/${user._id}`}>
-              <div className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer">
-                <div className="flex items-center mb-3">
-                  <Avatar className="w-12 h-12 mr-3">
-                    <AvatarFallback className="text-lg">
-                      {user.name
-                        .split(" ")
-                        .map((n: any) => n[0])
-                        .join("")}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="min-w-0 flex-1">
-                    <h3 className="font-semibold text-blue-600 hover:text-blue-800 truncate">
-                      {user.name}
-                    </h3>
-                    <p className="text-sm text-gray-600 truncate">
-                      @{user.name}
-                    </p>
+          {filteredUsers.map((user: any) => {
+            const isGold = user.plan === "gold";
+            const isSilver = user.plan === "silver";
+            const isBronze = user.plan === "bronze";
+            return (
+              <Link key={user._id} href={`/users/${user._id}`}>
+                <div
+                  className={`border rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer ${isGold
+                    ? "border-2 border-amber-400 bg-amber-50"
+                    : isSilver
+                      ? "border-2 border-gray-400 bg-gray-50"
+                      : isBronze
+                        ? "border border-[#cd7f32]/60"
+                        : "border-gray-200"
+                    }`}
+                >
+                  {isGold && (
+                    <div className="flex items-center mb-2 text-amber-600 text-xs font-semibold">
+                      <Crown className="w-3.5 h-3.5 mr-1" /> Featured Profile
+                    </div>
+                  )}
+                  {isSilver && (
+                    <div className="flex items-center mb-2 text-gray-500 text-xs font-semibold">
+                      <Sparkles className="w-3.5 h-3.5 mr-1" /> Enhanced Profile
+                    </div>
+                  )}
+                  <div className="flex items-center mb-3">
+                    <Avatar className="w-12 h-12 mr-3">
+                      <AvatarFallback className="text-lg">
+                        {user.name
+                          .split(" ")
+                          .map((n: any) => n[0])
+                          .join("")}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0 flex-1">
+                      <h3 className="font-semibold text-blue-600 hover:text-blue-800 truncate">
+                        {user.name}
+                      </h3>
+                      <p className="text-sm text-gray-600 truncate">
+                        @{user.name}
+                      </p>
+                    </div>
                   </div>
-                </div>
 
-                <div className="flex items-center text-sm text-gray-600 mb-3">
-                  <Calendar className="w-4 h-4 mr-1" />
-                  <span>Joined {new Date(user.joinDate).getFullYear()}</span>
+                  <div className="flex items-center text-sm text-gray-600 mb-3">
+                    <Calendar className="w-4 h-4 mr-1" />
+                    <span>Joined {new Date(user.joinDate).getFullYear()}</span>
+                  </div>
+                  {user.plan && (
+                    <span
+                      className={`inline-block px-2 py-0.5 rounded text-xs font-bold uppercase tracking-wider text-white ${user.plan === "gold"
+                        ? "bg-[#ffd700] text-gray-900"
+                        : user.plan === "silver"
+                          ? "bg-[#c0c0c0] text-gray-900"
+                          : user.plan === "bronze"
+                            ? "bg-[#cd7f32]"
+                            : ""
+                        }`}
+                    >
+                      {user.plan}
+                    </span>
+                  )}
                 </div>
-              </div>
-            </Link>
-          ))}
+              </Link>
+            );
+          })}
         </div>
       </div>
     </Mainlayout>
