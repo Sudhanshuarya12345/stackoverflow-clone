@@ -119,6 +119,24 @@ const Sidebar = ({ isopen }: any) => {
 
             <li>
               <Link
+                href="/support"
+                className="flex items-center px-2 py-2 text-gray-700 hover:bg-gray-100 rounded text-sm"
+              >
+                <MessageSquare className="w-4 h-4 mr-2 lg:mr-3" />
+                Priority Support
+              </Link>
+            </li>
+            <li>
+              <Link
+                href="/community"
+                className="flex items-center px-2 py-2 text-gray-700 hover:bg-gray-100 rounded text-sm"
+              >
+                <Trophy className="w-4 h-4 mr-2 lg:mr-3 text-amber-500" />
+                Gold Community
+              </Link>
+            </li>
+            <li>
+              <Link
                 href="/subscription"
                 className="flex items-center px-2 py-2 text-gray-700 hover:bg-gray-100 rounded text-sm"
               >

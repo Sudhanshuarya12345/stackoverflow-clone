@@ -19,8 +19,17 @@ export const generateInvoicePdfBuffer = (paymentDoc, userDoc, planDetails) => {
 
       // Bill To
       doc.fontSize(14).text("Bill To:");
-      doc.fontSize(12).text(userDoc.name);
-      doc.text(userDoc.email);
+      const billing = userDoc.billingDetails || {};
+      doc.fontSize(12).text(billing.billingName || userDoc.name);
+      doc.text(billing.billingEmail || userDoc.email);
+      if (billing.addressLine1) {
+        doc.text(billing.addressLine1);
+        if (billing.addressLine2) doc.text(billing.addressLine2);
+        const cityLine = [billing.city, billing.state, billing.postalCode].filter(Boolean).join(", ");
+        if (cityLine) doc.text(cityLine);
+        if (billing.country) doc.text(billing.country);
+      }
+      if (billing.gstNumber) doc.text(`GSTIN: ${billing.gstNumber}`);
       doc.moveDown(2);
 
       // Plan Details Table

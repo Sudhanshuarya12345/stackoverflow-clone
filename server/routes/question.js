@@ -10,6 +10,8 @@ import {
   addQuestionView,
   toggleFavorite,
   acceptAnswer,
+  startBounty,
+  awardBounty,
 } from "../controller/question.js";
 
 const router = express.Router();
@@ -27,5 +29,7 @@ router.post("/:id/answers/:answerId/comments", auth, addAnswerComment);
 router.patch("/:id/view", addQuestionView);
 router.patch("/:id/favorite", auth, toggleFavorite);
 router.patch("/:id/answers/:answerId/accept", auth, acceptAnswer);
+router.post("/:id/bounty/start", auth, startBounty);
+router.patch("/:id/bounty/award/:answerId", auth, awardBounty);
 
 export default router;

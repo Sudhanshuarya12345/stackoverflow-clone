@@ -134,6 +134,11 @@ export default function PricingPage() {
                             <Link href="/subscription/dashboard" className="text-orange-600 hover:text-orange-800 font-medium hover:underline">
                                 View your active subscription &rarr;
                             </Link>
+                            {user.plan && user.plan !== "free" && (
+                                <p className="mt-2 text-xs text-gray-500">
+                                    You're on the {user.plan} plan. To change plans, cancel your current subscription from the dashboard first.
+                                </p>
+                            )}
                         </div>
                     )}
                 </div>

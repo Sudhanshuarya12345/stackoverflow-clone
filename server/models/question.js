@@ -9,6 +9,20 @@ const questionschema = mongoose.Schema(
     views: { type: Number, default: 0 },
     favorites: { type: [String], default: [] },
     acceptedAnswerId: { type: String },
+    bounty: {
+      amount: { type: Number, default: 0 },
+      status: {
+        type: String,
+        enum: ["none", "active", "awarded", "expired"],
+        default: "none",
+      },
+      startedBy: String,
+      startedAt: Date,
+      expiresAt: Date,
+      awardedToAnswerId: String,
+      awardedToUserId: String,
+      awardedAt: Date,
+    },
     comments: [
       {
         body: String,

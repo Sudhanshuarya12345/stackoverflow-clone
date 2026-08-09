@@ -15,7 +15,8 @@ import { Textarea } from "@/components/ui/textarea";
 import Mainlayout from "@/layout/Mainlayout";
 import { useAuth } from "@/lib/AuthContext";
 import axiosInstance from "@/lib/axiosinstance";
-import { Calendar, Edit, Plus, X } from "lucide-react";
+import { Calendar, CreditCard, Edit, Plus, X } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/router";
 import React, { useEffect, useState } from "react";
 import { toast } from "react-toastify";
@@ -135,9 +136,33 @@ const index = () => {
           <div className="flex-1 min-w-0">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-4">
               <div>
-                <h1 className="text-2xl lg:text-3xl font-bold text-gray-800 mb-1">
-                  {users.name}
-                </h1>
+                <div className="flex items-center gap-2 mb-1">
+                  <h1 className="text-2xl lg:text-3xl font-bold text-gray-800">
+                    {users.name}
+                  </h1>
+                  {users.plan && users.plan !== "free" && (
+                    <span
+                      className={`inline-block px-2.5 py-1 rounded text-xs font-bold uppercase tracking-wider shadow-sm ${users.plan === "gold"
+                        ? "bg-[#ffd700] text-gray-900"
+                        : users.plan === "silver"
+                          ? "bg-[#c0c0c0] text-gray-900"
+                          : "bg-[#cd7f32] text-white"
+                        }`}
+                    >
+                      {users.plan}
+                    </span>
+                  )}
+                </div>
+                {users.plan === "gold" && (
+                  <p className="text-sm text-amber-600 font-semibold mb-1">
+                    ✨ Featured Profile
+                  </p>
+                )}
+                {users.plan === "silver" && (
+                  <p className="text-sm text-gray-500 font-semibold mb-1">
+                    ✨ Enhanced Profile
+                  </p>
+                )}
               </div>
 
               {isOwnProfile && (
@@ -293,6 +318,36 @@ const index = () => {
             </div>
           </div>
         </div>
+        {isOwnProfile && (
+          <div className="mb-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <CreditCard className="w-4 h-4 text-orange-600" /> Subscription & Billing
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                  <div className="text-sm text-gray-700">
+                    <p>
+                      Current plan:{" "}
+                      <span className="font-semibold uppercase">{user?.plan || "free"}</span>
+                    </p>
+                    <p className="mt-1 text-gray-500">
+                      Manage your subscription, payment history, invoices, renewal date, and billing details.
+                    </p>
+                  </div>
+                  <Link
+                    href="/subscription/dashboard"
+                    className="rounded bg-orange-600 px-4 py-2 text-sm font-medium text-white hover:bg-orange-700"
+                  >
+                    Manage Subscription
+                  </Link>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
         <div className="grid grid-cols-1  gap-6">
           <div className="lg:col-span-2 space-y-6">
             <Card>

@@ -257,7 +257,8 @@ const QuestionDetail = ({ questionId }: any) => {
   const [newanswer, setnewAnswer] = useState("");
   const [isSubmitting, setisSubmitting] = useState(false);
   const [loading, setloading] = useState(true);
-  const { user } = useAuth();
+  const { user, updateLocalUser } = useAuth();
+  const [bountyAmount, setBountyAmount] = useState(50);
   useEffect(() => {
     const fetchuser = async () => {
       try {
@@ -265,7 +266,7 @@ const QuestionDetail = ({ questionId }: any) => {
         const matchedquestion = res.data.data.find(
           (u: any) => u._id === questionId
         );
-        setanswer(matchedquestion.answer);
+        setanswer(matchedquestion?.answer || []);
         setquestion(matchedquestion);
       } catch (error) {
         console.log(error);
@@ -320,6 +321,61 @@ const QuestionDetail = ({ questionId }: any) => {
       toast.error(error.response?.data?.message || "Failed to update bookmark");
     }
   };
+  const handleStartBounty = async () => {
+    if (!user) {
+      toast.info("Please login to continue")
+      router.push("/auth")
+      return
+    }
+    try {
+      const res = await axiosInstance.post(`/question/${question._id}/bounty/start`, {
+        amount: bountyAmount,
+      });
+      if (res.data.data) {
+        setquestion((prev: any) => ({ ...res.data.data, userplan: prev.userplan }));
+        updateLocalUser?.({ reputation: res.data.reputation });
+        toast.success(`Bounty of ${bountyAmount} reputation started`);
+      }
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || "Failed to start bounty");
+    }
+  };
+  const handleAwardBounty = async (answerId: string) => {
+    if (!user) {
+      toast.info("Please login to continue")
+      router.push("/auth")
+      return
+    }
+    if (!window.confirm("Award this bounty to the selected answer?")) return;
+    try {
+      const res = await axiosInstance.patch(`/question/${question._id}/bounty/award/${answerId}`);
+      if (res.data.data) {
+        setquestion((prev: any) => ({ ...res.data.data, userplan: prev.userplan }));
+        toast.success("Bounty awarded");
+      }
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || "Failed to award bounty");
+    }
+  };
+  const handleShare = async () => {
+    const url = typeof window !== "undefined" ? window.location.href : "";
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success("Question link copied");
+    } catch (error) {
+      toast.info(url || "Copy the current page URL from your browser");
+    }
+  };
+  const handleHistory = () => {
+    const latestActivity = Math.max(
+      new Date(question.askedon).getTime(),
+      ...(question.answer || []).map((ans: any) => new Date(ans.answeredon || question.askedon).getTime())
+    );
+    toast.info(`Asked ${new Date(question.askedon).toLocaleDateString()} · latest activity ${new Date(latestActivity).toLocaleDateString()}`);
+  };
+  const handleFlag = () => {
+    toast.info("Report/flag review workflow is not available yet.");
+  };
   const handleSubmitanswer = async () => {
     if (!user) {
       toast.info("Please login to continue")
@@ -339,17 +395,7 @@ const QuestionDetail = ({ questionId }: any) => {
         }
       );
       if (res.data.data) {
-        const newObj = {
-          answerbody: newanswer,
-          useranswered: user.name,
-          userid: user._id,
-          answeredon: new Date().toISOString(),
-        };
-        setquestion((prev: any) => ({
-          ...prev,
-          noofanswer: prev.noofanswer + 1,
-          answer: [...(prev.answer || []), newObj],
-        }));
+        setquestion((prev: any) => ({ ...res.data.data, userplan: prev.userplan }));
         toast.success("Answer Uploaded");
       }
     } catch (error) {
@@ -397,14 +443,7 @@ const QuestionDetail = ({ questionId }: any) => {
         },
       });
       if (res.data.data) {
-        const updateanswer = question.answer.filter(
-          (ans: any) => ans._id !== id
-        );
-        setquestion((prev: any) => ({
-          ...prev,
-          noofanswer: updateanswer.length,
-          answer: updateanswer,
-        }));
+        setquestion((prev: any) => ({ ...res.data.data, userplan: prev.userplan }));
         toast.success("deleted successfully");
       }
     } catch (error) {
@@ -426,7 +465,20 @@ const QuestionDetail = ({ questionId }: any) => {
             <Clock className="w-4 h-4" />
             <span>Asked {new Date(question.askedon).toLocaleDateString()}</span>
           </div>
+          <span>{question.views || 0} views</span>
+          <span>{question.upvote.length - question.downvote.length} score</span>
         </div>
+        {question.bounty?.status === "active" && (
+          <div className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+            <span className="font-semibold">+{question.bounty.amount} reputation bounty</span>{" "}
+            available until {new Date(question.bounty.expiresAt).toLocaleDateString()}.
+          </div>
+        )}
+        {question.bounty?.status === "awarded" && (
+          <div className="rounded border border-green-200 bg-green-50 p-3 text-sm text-green-800">
+            Bounty awarded: +{question.bounty.amount} reputation.
+          </div>
+        )}
       </div>
 
       {/* Question Content */}
@@ -471,6 +523,7 @@ const QuestionDetail = ({ questionId }: any) => {
                   variant="ghost"
                   size="sm"
                   className="p-2 text-gray-600 hover:text-gray-800"
+                  onClick={handleHistory}
                 >
                   <History className="w-5 h-5" />
                 </Button>
@@ -517,11 +570,12 @@ const QuestionDetail = ({ questionId }: any) => {
                 ))}
               </div>
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button
                     variant="ghost"
                     size="sm"
                     className="text-gray-600 hover:text-gray-800"
+                    onClick={handleShare}
                   >
                     <Share className="w-4 h-4 mr-1" />
                     Share
@@ -530,6 +584,7 @@ const QuestionDetail = ({ questionId }: any) => {
                     variant="ghost"
                     size="sm"
                     className="text-gray-600 hover:text-gray-800"
+                    onClick={handleFlag}
                   >
                     <Flag className="w-4 h-4 mr-1" />
                     Flag
@@ -569,6 +624,28 @@ const QuestionDetail = ({ questionId }: any) => {
                   </Link>
                 </div>
               </div>
+              {question.bounty?.status !== "active" && question.bounty?.status !== "awarded" && (
+                <div className="mt-6 rounded border border-gray-200 bg-gray-50 p-3">
+                  <div className="mb-3 text-sm font-medium text-gray-900">Start a bounty</div>
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                    <select
+                      value={bountyAmount}
+                      onChange={(event) => setBountyAmount(Number(event.target.value))}
+                      className="rounded border border-gray-300 px-3 py-2 text-sm"
+                    >
+                      {[50, 100, 200, 500].map((amount) => (
+                        <option key={amount} value={amount}>{amount} reputation</option>
+                      ))}
+                    </select>
+                    <Button onClick={handleStartBounty} className="bg-amber-600 text-white hover:bg-amber-700">
+                      Start bounty
+                    </Button>
+                    <span className="text-xs text-gray-600">
+                      Your reputation: {user?.reputation ?? 100}. Bounties run for 7 days.
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </CardContent>
@@ -613,25 +690,39 @@ const QuestionDetail = ({ questionId }: any) => {
                       />
                     </div>
                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                      <div className="flex gap-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-gray-600 hover:text-gray-800"
-                        >
-                          <Share className="w-4 h-4 mr-1" />
-                          Share
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-gray-600 hover:text-gray-800"
-                        >
-                          <Flag className="w-4 h-4 mr-1" />
-                          Flag
-                        </Button>
-                        {ans.userid === user?._id && (
+                        <div className="flex flex-wrap gap-2">
                           <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-gray-600 hover:text-gray-800"
+                            onClick={handleShare}
+                          >
+                            <Share className="w-4 h-4 mr-1" />
+                            Share
+                        </Button>
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-gray-600 hover:text-gray-800"
+                            onClick={handleFlag}
+                          >
+                            <Flag className="w-4 h-4 mr-1" />
+                            Flag
+                          </Button>
+                          {question.bounty?.status === "active" &&
+                            (question.userid === user?._id || question.bounty.startedBy === user?._id) &&
+                            ans.userid !== user?._id && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleAwardBounty(ans._id)}
+                                className="border-amber-300 text-amber-700 hover:bg-amber-50"
+                              >
+                                Award +{question.bounty.amount}
+                              </Button>
+                            )}
+                          {ans.userid === user?._id && (
+                            <Button
                             variant="ghost"
                             size="sm"
                             onClick={() => handleDeleteanswer(ans._id)}
@@ -642,10 +733,13 @@ const QuestionDetail = ({ questionId }: any) => {
                           </Button>
                         )}
                       </div>
-                      <div className="flex items-center gap-2 text-sm">
+                      <div className="flex flex-wrap items-center gap-2 text-sm">
                         <span className="text-gray-600">
-                          answerd {ans.answeredon}
+                          answered {new Date(ans.answeredon).toLocaleDateString()}
                         </span>
+                        {ans.isAccepted && (
+                          <Badge className="bg-green-100 text-green-700 hover:bg-green-100">accepted</Badge>
+                        )}
                         <Link
                           href={`/users/${ans.userid}`}
                           className="flex items-center gap-2 hover:bg-blue-50 p-2 rounded"

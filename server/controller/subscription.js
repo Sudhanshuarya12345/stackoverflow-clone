@@ -179,3 +179,35 @@ export const cancelMySubscription = async (req, res) => {
     res.status(500).json({ message: "Could not cancel subscription" });
   }
 };
+
+export const getMyBillingDetails = async (req, res) => {
+  try {
+    const user = await User.findById(req.userid).select("billingDetails email name");
+    res.status(200).json({ billingDetails: user?.billingDetails || {} });
+  } catch (error) {
+    console.error("Error getting billing details:", error);
+    res.status(500).json({ message: "Could not fetch billing details" });
+  }
+};
+
+export const updateMyBillingDetails = async (req, res) => {
+  try {
+    const allowed = [
+      "billingName", "billingEmail", "addressLine1", "addressLine2",
+      "city", "state", "country", "postalCode", "gstNumber",
+    ];
+    const cleaned = {};
+    allowed.forEach((field) => {
+      if (req.body[field] !== undefined) cleaned[field] = req.body[field];
+    });
+    const user = await User.findByIdAndUpdate(
+      req.userid,
+      { $set: { billingDetails: { ...req.body.billingDetails, ...cleaned } } },
+      { new: true }
+    ).select("billingDetails email name");
+    res.status(200).json({ billingDetails: user?.billingDetails || {} });
+  } catch (error) {
+    console.error("Error updating billing details:", error);
+    res.status(500).json({ message: "Could not update billing details" });
+  }
+};

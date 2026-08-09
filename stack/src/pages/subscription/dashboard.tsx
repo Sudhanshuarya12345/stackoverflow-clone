@@ -5,7 +5,7 @@ import axiosInstance from "@/lib/axiosinstance";
 import { useEffect, useState } from "react";
 import { toast } from "react-toastify";
 import Link from "next/link";
-import { FileDown, Calendar, CreditCard, Clock, CheckCircle, AlertCircle, Star } from "lucide-react";
+import { FileDown, Calendar, CreditCard, Clock, CheckCircle, AlertCircle, Star, Save } from "lucide-react";
 import PlanBadge from "@/components/PlanBadge";
 
 export default function SubscriptionDashboard() {
@@ -13,6 +13,8 @@ export default function SubscriptionDashboard() {
     const [subData, setSubData] = useState<any>(null);
     const [invoices, setInvoices] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    const [billing, setBilling] = useState<any>({});
+    const [savingBilling, setSavingBilling] = useState(false);
 
     useEffect(() => {
         if (user) {
@@ -23,13 +25,15 @@ export default function SubscriptionDashboard() {
     const fetchDashboardData = async () => {
         try {
             setLoading(true);
-            const [subRes, invRes] = await Promise.all([
+            const [subRes, invRes, billRes] = await Promise.all([
                 axiosInstance.get("/api/subscriptions/me"),
-                axiosInstance.get("/api/subscriptions/invoices?page=1&limit=20")
+                axiosInstance.get("/api/subscriptions/invoices?page=1&limit=20"),
+                axiosInstance.get("/api/subscriptions/billing").catch(() => ({ data: { billingDetails: {} } }))
             ]);
 
             setSubData(subRes.data.subscription);
             setInvoices(invRes.data.invoices);
+            setBilling(billRes.data.billingDetails || {});
 
             // Sync local user plan if it drifted
             if (subRes.data.userPlanDetails?.plan && subRes.data.userPlanDetails.plan !== user.plan) {
@@ -40,6 +44,19 @@ export default function SubscriptionDashboard() {
             console.error(error);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleSaveBilling = async () => {
+        setSavingBilling(true);
+        try {
+            const res = await axiosInstance.put("/api/subscriptions/billing", { billingDetails: billing });
+            setBilling(res.data.billingDetails || billing);
+            toast.success("Billing details saved");
+        } catch (error) {
+            toast.error("Failed to save billing details");
+        } finally {
+            setSavingBilling(false);
         }
     };
 
@@ -100,7 +117,7 @@ export default function SubscriptionDashboard() {
                             href="/subscription"
                             className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-orange-600 hover:bg-orange-700"
                         >
-                            {isPremium ? "Change Plan" : "Upgrade Plan"}
+                            {isPremium ? "Manage Plan" : "Upgrade Plan"}
                         </Link>
                     </div>
                 </div>
@@ -174,6 +191,81 @@ export default function SubscriptionDashboard() {
                                         </div>
                                     )}
                                 </dl>
+                            </div>
+                        </div>
+
+                        {/* Billing Details Card */}
+                        <div className="bg-white shadow overflow-hidden sm:rounded-lg border border-gray-200">
+                            <div className="px-4 py-5 sm:px-6 bg-gray-50 border-b border-gray-200">
+                                <h3 className="text-lg leading-6 font-medium text-gray-900 flex items-center">
+                                    <CreditCard className="w-4 h-4 mr-2" /> Billing Details
+                                </h3>
+                            </div>
+                            <div className="px-4 py-5 sm:p-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <input
+                                    value={billing.billingName || ""}
+                                    onChange={(e) => setBilling({ ...billing, billingName: e.target.value })}
+                                    placeholder="Billing name"
+                                    className="rounded border border-gray-300 px-3 py-2 text-sm"
+                                />
+                                <input
+                                    value={billing.billingEmail || ""}
+                                    onChange={(e) => setBilling({ ...billing, billingEmail: e.target.value })}
+                                    placeholder="Billing email"
+                                    className="rounded border border-gray-300 px-3 py-2 text-sm"
+                                />
+                                <input
+                                    value={billing.addressLine1 || ""}
+                                    onChange={(e) => setBilling({ ...billing, addressLine1: e.target.value })}
+                                    placeholder="Address line 1"
+                                    className="rounded border border-gray-300 px-3 py-2 text-sm"
+                                />
+                                <input
+                                    value={billing.addressLine2 || ""}
+                                    onChange={(e) => setBilling({ ...billing, addressLine2: e.target.value })}
+                                    placeholder="Address line 2"
+                                    className="rounded border border-gray-300 px-3 py-2 text-sm"
+                                />
+                                <input
+                                    value={billing.city || ""}
+                                    onChange={(e) => setBilling({ ...billing, city: e.target.value })}
+                                    placeholder="City"
+                                    className="rounded border border-gray-300 px-3 py-2 text-sm"
+                                />
+                                <input
+                                    value={billing.state || ""}
+                                    onChange={(e) => setBilling({ ...billing, state: e.target.value })}
+                                    placeholder="State"
+                                    className="rounded border border-gray-300 px-3 py-2 text-sm"
+                                />
+                                <input
+                                    value={billing.country || ""}
+                                    onChange={(e) => setBilling({ ...billing, country: e.target.value })}
+                                    placeholder="Country"
+                                    className="rounded border border-gray-300 px-3 py-2 text-sm"
+                                />
+                                <input
+                                    value={billing.postalCode || ""}
+                                    onChange={(e) => setBilling({ ...billing, postalCode: e.target.value })}
+                                    placeholder="Postal code"
+                                    className="rounded border border-gray-300 px-3 py-2 text-sm"
+                                />
+                                <input
+                                    value={billing.gstNumber || ""}
+                                    onChange={(e) => setBilling({ ...billing, gstNumber: e.target.value })}
+                                    placeholder="GST Number (optional)"
+                                    className="rounded border border-gray-300 px-3 py-2 text-sm sm:col-span-2"
+                                />
+                                <div className="sm:col-span-2">
+                                    <button
+                                        onClick={handleSaveBilling}
+                                        disabled={savingBilling}
+                                        className="inline-flex items-center rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                                    >
+                                        <Save className="w-4 h-4 mr-2" />
+                                        {savingBilling ? "Saving..." : "Save billing details"}
+                                    </button>
+                                </div>
                             </div>
                         </div>
 
