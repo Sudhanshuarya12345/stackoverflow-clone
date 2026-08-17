@@ -4,6 +4,7 @@ import {
   Bot,
   Building,
   FileText,
+  Flame,
   Home,
   MessageSquare,
   MessageSquareIcon,
@@ -42,6 +43,15 @@ const Sidebar = ({ isopen }: any) => {
               >
                 <MessageSquareIcon className="w-4 h-4 mr-2 lg:mr-3" />
                 Questions
+              </Link>
+            </li>
+            <li>
+              <Link
+                href="/feed"
+                className="flex items-center px-2 py-2 text-gray-700 hover:bg-gray-100 rounded text-sm"
+              >
+                <Flame className="w-4 h-4 mr-2 lg:mr-3 text-orange-500" />
+                Community Feed
               </Link>
             </li>
             <li>

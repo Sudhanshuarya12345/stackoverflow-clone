@@ -3,6 +3,7 @@ import { Menu, Search } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import { useEffect, useState } from "react";
+import NotificationBell from "./NotificationBell";
 
 // const User = {
 //   _id: "1",
@@ -82,6 +83,7 @@ const Navbar = ({ handleslidein }: any) => {
             </>
           ) : (
             <>
+              <NotificationBell enabled={Boolean(user)} />
               <div className="flex items-center">
                 <Link
                   href={`/users/${user._id}`}

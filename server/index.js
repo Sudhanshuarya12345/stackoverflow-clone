@@ -9,6 +9,8 @@ import webhookroute from "./routes/webhook.js"
 import subscriptionroutes from "./routes/subscription.js"
 import communityroutes from "./routes/community.js"
 import supportroutes from "./routes/support.js"
+import notificationroutes from "./routes/notification.js"
+import adminroutes from "./routes/admin.js"
 import { expireDueSubscriptions } from "./services/subscriptionAccess.js";
 import { expireOldBounties } from "./controller/question.js";
 const app = express();
@@ -29,6 +31,8 @@ app.use('/answer',answerroutes)
 app.use('/api/subscriptions', subscriptionroutes)
 app.use('/api/community', communityroutes)
 app.use('/api/support', supportroutes)
+app.use('/api/notifications', notificationroutes)
+app.use('/api/admin', adminroutes)
 const PORT = process.env.PORT || 5000;
 const databaseurl = process.env.MONGODB_URL;
 

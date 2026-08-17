@@ -3,6 +3,15 @@ import user from "../models/auth.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { BADGES } from "../config/badges.js";
+
+const getRoleForEmail = (email = "") => {
+  const adminEmails = (process.env.ADMIN_EMAILS || "")
+    .split(",")
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+  return adminEmails.includes(email.toLowerCase()) ? "admin" : "user";
+};
+
 export const Signup = async (req, res) => {
   const { name, email, password } = req.body;
   try {
@@ -15,6 +24,7 @@ export const Signup = async (req, res) => {
       name,
       email,
       password: hashpassword,
+      role: getRoleForEmail(email),
     });
     const token = jwt.sign(
       { email: newuser.email, id: newuser._id },
@@ -43,6 +53,14 @@ export const Login = async (req, res) => {
     );
     if (!ispasswordcrct) {
       return res.status(400).json({ message: "Invalid password" });
+    }
+    if (exisitinguser.suspended) {
+      return res.status(403).json({ message: exisitinguser.suspendedReason || "Your account is suspended." });
+    }
+    const envRole = getRoleForEmail(exisitinguser.email);
+    if (envRole === "admin" && exisitinguser.role !== "admin") {
+      exisitinguser.role = "admin";
+      await exisitinguser.save();
     }
     const token = jwt.sign(
       { email: exisitinguser.email, id: exisitinguser._id },
