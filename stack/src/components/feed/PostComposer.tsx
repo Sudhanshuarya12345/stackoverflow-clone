@@ -128,7 +128,7 @@ export default function PostComposer({ onCreated }: { onCreated: (post: any) => 
               <Code2 className="mr-2 h-4 w-4" /> Code
             </Button>
           </div>
-          <Button type="submit" disabled={posting} className="bg-orange-600 text-white hover:bg-orange-700">
+          <Button type="submit" disabled={posting} variant="outline" className="border-orange-300 bg-white text-orange-700 hover:bg-orange-50">
             <Send className="mr-2 h-4 w-4" /> {posting ? "Posting..." : "Post"}
           </Button>
         </div>
