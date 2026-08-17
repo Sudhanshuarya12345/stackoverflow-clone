@@ -21,18 +21,18 @@ const decodeTokenExp = (token) => {
 const WARN_BEFORE_MS = 10 * 60 * 1000;
 
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(() => {
-    if (typeof window !== "undefined") {
-      const stored = localStorage.getItem("user");
-      return stored ? JSON.parse(stored) : null;
-    }
-    return null;
-  });
+  const [user, setUser] = useState(null);
   const [authReady, setAuthReady] = useState(false);
   const [loading, setloading] = useState(false);
   const [error, seterror] = useState(null);
 
   useEffect(() => {
+    try {
+      const stored = localStorage.getItem("user");
+      if (stored) setUser(JSON.parse(stored));
+    } catch {
+      setUser(null);
+    }
     setAuthReady(true);
   }, []);
 
