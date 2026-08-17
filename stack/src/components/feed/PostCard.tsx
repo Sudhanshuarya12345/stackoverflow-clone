@@ -1,8 +1,9 @@
 import { Button } from "@/components/ui/button";
 import axiosInstance from "@/lib/axiosinstance";
 import { useAuth } from "@/lib/AuthContext";
-import { Bookmark, Code2, Flag, Heart, MessageCircle, Repeat2, Trash2 } from "lucide-react";
+import { Bookmark, Code2, Flag, Heart, MessageCircle, Repeat2, Trash2, UserCheck, UserPlus } from "lucide-react";
 import Link from "next/link";
+import { useState } from "react";
 import { toast } from "react-toastify";
 
 const typeLabel: Record<string, string> = {
@@ -13,10 +14,12 @@ const typeLabel: Record<string, string> = {
   snippet: "Snippet",
 };
 
-export default function PostCard({ post, onChange, compact = false }: { post: any; onChange?: (post: any | null) => void; compact?: boolean }) {
+export default function PostCard({ post, onChange, compact = false, isFollowing, onToggleFollow }: { post: any; onChange?: (post: any | null) => void; compact?: boolean; isFollowing?: boolean; onToggleFollow?: (userId: string) => void }) {
   const { user } = useAuth();
   const author = post.author || {};
   const isOwner = user?._id && String(user._id) === String(author._id || post.author);
+  const [localFollowing, setLocalFollowing] = useState(Boolean(post.isFollowing));
+  const following = onToggleFollow ? Boolean(isFollowing) : localFollowing;
 
   const action = async (fn: () => Promise<any>, fallback: string) => {
     try {
@@ -56,11 +59,22 @@ export default function PostCard({ post, onChange, compact = false }: { post: an
   };
 
   const follow = async () => {
+    if (onToggleFollow) {
+      onToggleFollow(String(author._id));
+      return;
+    }
     try {
-      await axiosInstance.post(`/api/community/follow/${author._id}`);
-      toast.success(`Following ${author.name}`);
+      if (localFollowing) {
+        await axiosInstance.delete(`/api/community/follow/${author._id}`);
+        setLocalFollowing(false);
+        toast.success(`Unfollowed ${author.name}`);
+      } else {
+        await axiosInstance.post(`/api/community/follow/${author._id}`);
+        setLocalFollowing(true);
+        toast.success(`Following ${author.name}`);
+      }
     } catch (error: any) {
-      toast.error(error.response?.data?.message || "Could not follow user");
+      toast.error(error.response?.data?.message || "Could not update follow");
     }
   };
 
@@ -83,7 +97,12 @@ export default function PostCard({ post, onChange, compact = false }: { post: an
               </div>
             </div>
           </div>
-          {user && !isOwner && <Button type="button" size="sm" variant="outline" onClick={follow}>Follow</Button>}
+          {user && !isOwner && (
+            <Button type="button" size="sm" variant="outline" onClick={follow} className={following ? "border-orange-400 bg-white text-orange-700" : ""}>
+              {following ? <UserCheck className="mr-1 h-4 w-4" /> : <UserPlus className="mr-1 h-4 w-4" />}
+              {following ? "Unfollow" : "Follow"}
+            </Button>
+          )}
         </div>
         {post.content && <p className="whitespace-pre-wrap text-sm leading-6 text-slate-800">{post.content}</p>}
         {post.hashtags?.length > 0 && (

@@ -35,6 +35,7 @@ const buildPostResponse = async (post, userId) => {
     bookmarksCount: post.bookmarks?.length || 0,
     likedByMe: Boolean(userId && post.likes?.some((id) => String(id) === String(userId))),
     bookmarkedByMe: Boolean(userId && post.bookmarks?.some((id) => String(id) === String(userId))),
+    isFollowing: Boolean(userId && (await Follow.exists({ follower: userId, following: post.author }))),
   };
 };
 
@@ -131,10 +132,16 @@ export const getFeed = async (req, res) => {
       },
     ]);
 
+    const followedIds = new Set();
+    if (req.userid) {
+      const follows = await Follow.find({ follower: req.userid }).select("following").lean();
+      follows.forEach((f) => followedIds.add(String(f.following)));
+    }
     const items = (result.items || []).map((post) => ({
       ...post,
       likedByMe: Boolean(req.userid && post.likes?.some((id) => String(id) === String(req.userid))),
       bookmarkedByMe: Boolean(req.userid && post.bookmarks?.some((id) => String(id) === String(req.userid))),
+      isFollowing: Boolean(req.userid && followedIds.has(String(post.author?._id))),
     }));
     const total = result.total[0]?.count || 0;
     res.status(200).json({ data: items, total, page, limit, totalPages: Math.ceil(total / limit), hasMore: page * limit < total });
@@ -154,6 +161,7 @@ export const getPostById = async (req, res) => {
       .populate("comments.replies.user", "name plan");
     if (!post || !canAccessPost(post, req.userid)) return res.status(404).json({ message: "Post not found" });
     const postObject = post.toObject();
+    const isFollowing = Boolean(req.userid && (await Follow.exists({ follower: req.userid, following: post.author._id })));
     res.status(200).json({
       data: {
         ...postObject,
@@ -161,6 +169,7 @@ export const getPostById = async (req, res) => {
         commentsCount: post.comments.reduce((sum, c) => sum + 1 + (c.replies?.length || 0), 0),
         likedByMe: Boolean(req.userid && post.likes.some((uid) => String(uid) === String(req.userid))),
         bookmarkedByMe: Boolean(req.userid && post.bookmarks.some((uid) => String(uid) === String(req.userid))),
+        isFollowing,
       },
     });
   } catch (error) {

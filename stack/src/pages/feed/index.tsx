@@ -22,6 +22,7 @@ export default function FeedPage() {
   const { user, authReady } = useAuth();
   const [posts, setPosts] = useState<any[]>([]);
   const [hashtags, setHashtags] = useState<any[]>([]);
+  const [followingIds, setFollowingIds] = useState<Record<string, boolean>>({});
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -29,12 +30,38 @@ export default function FeedPage() {
   const tab = String(router.query.tab || "latest");
   const hashtag = router.query.hashtag ? String(router.query.hashtag) : "";
 
+  const syncFollowing = (incoming: any[]) => {
+    setFollowingIds((prev) => {
+      const next = { ...prev };
+      incoming.forEach((p) => {
+        const id = String(p.author?._id);
+        if (id && !(id in next)) next[id] = Boolean(p.isFollowing);
+      });
+      return next;
+    });
+  };
+
+  const toggleFollow = async (userId: string) => {
+    const next = !followingIds[userId];
+    const authorName = posts.find((p) => String(p.author?._id) === userId)?.author?.name;
+    setFollowingIds((prev) => ({ ...prev, [userId]: next }));
+    try {
+      if (next) await axiosInstance.post(`/api/community/follow/${userId}`);
+      else await axiosInstance.delete(`/api/community/follow/${userId}`);
+      toast.success(next ? `Following ${authorName || "user"}` : `Unfollowed ${authorName || "user"}`);
+    } catch (error: any) {
+      setFollowingIds((prev) => ({ ...prev, [userId]: !next }));
+      toast.error(error.response?.data?.message || "Could not update follow");
+    }
+  };
+
   const loadPosts = async (targetPage = 1, append = false) => {
     if (!authReady) return;
     try {
       setLoading(true);
       const res = await axiosInstance.get("/api/community/feed", { params: { tab, hashtag, page: targetPage, limit: 8 } });
       setPosts((prev) => (append ? [...prev, ...res.data.data] : res.data.data));
+      syncFollowing(res.data.data);
       setPage(targetPage);
       setHasMore(res.data.hasMore);
     } catch (error: any) {
@@ -74,7 +101,9 @@ export default function FeedPage() {
             <h1 className="mt-2 text-3xl font-black">Share what you are building and learning</h1>
             <p className="mt-2 max-w-2xl text-sm text-orange-50">Post updates, images, code snippets, project showcases, and achievements. Follow members to personalize the feed.</p>
           </div>
-          {user ? <PostComposer onCreated={(post) => setPosts((prev) => [post, ...prev])} /> : (
+          {!authReady ? (
+            <div className="rounded-2xl border bg-white p-4 text-sm">Loading your session...</div>
+          ) : user ? <PostComposer onCreated={(post) => setPosts((prev) => [post, ...prev])} /> : (
             <div className="rounded-2xl border bg-white p-4 text-sm"><Link href="/auth" className="font-semibold text-orange-700">Log in</Link> to post, follow, like, comment, and bookmark.</div>
           )}
           <div className="flex flex-wrap gap-2">
@@ -87,7 +116,13 @@ export default function FeedPage() {
           </div>
           <div className="space-y-4">
             {posts.map((post) => (
-              <PostCard key={post._id} post={post} onChange={(updated) => setPosts((prev) => updated ? prev.map((item) => item._id === updated._id ? updated : item) : prev.filter((item) => item._id !== post._id))} />
+              <PostCard
+                key={post._id}
+                post={post}
+                isFollowing={Boolean(followingIds[String(post.author?._id)])}
+                onToggleFollow={toggleFollow}
+                onChange={(updated) => setPosts((prev) => updated ? prev.map((item) => item._id === updated._id ? updated : item) : prev.filter((item) => item._id !== post._id))}
+              />
             ))}
             {!loading && posts.length === 0 && <div className="rounded-2xl border bg-white p-8 text-center text-slate-500">No posts yet. Start the conversation.</div>}
             {loading && <div className="rounded-2xl border bg-white p-6 text-center text-slate-500">Loading posts...</div>}
