@@ -37,7 +37,7 @@ export default function CommentSection({ post, onPostChange }: { post: any; onPo
       <h2 className="mb-4 text-lg font-bold text-slate-900">Comments</h2>
       <div className="mb-6 space-y-2">
         <Textarea value={body} onChange={(e) => setBody(e.target.value)} placeholder="Add a comment or @mention another member" />
-        <Button onClick={submitComment} className="bg-orange-600 text-white hover:bg-orange-700">Comment</Button>
+        <Button onClick={submitComment} variant="outline" className="border-orange-300 bg-white text-orange-700 hover:bg-orange-50">Comment</Button>
       </div>
       <div className="space-y-4">
         {(post.comments || []).map((comment: any) => (

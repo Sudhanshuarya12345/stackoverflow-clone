@@ -79,7 +79,7 @@ export default function FeedPage() {
           )}
           <div className="flex flex-wrap gap-2">
             {tabs.map((item) => (
-              <Button key={item.value} type="button" variant={tab === item.value ? "default" : "outline"} onClick={() => setTab(item.value)} className={tab === item.value ? "bg-orange-600 text-white" : ""}>
+              <Button key={item.value} type="button" variant="outline" onClick={() => setTab(item.value)} className={tab === item.value ? "border-orange-400 bg-white font-semibold text-orange-700 shadow-sm" : ""}>
                 {item.value === "following" && <Users className="h-4 w-4" />} {item.label}
               </Button>
             ))}
