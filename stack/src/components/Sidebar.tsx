@@ -4,6 +4,7 @@ import {
   Bot,
   Building,
   FileText,
+  Flame,
   Home,
   MessageSquare,
   MessageSquareIcon,
@@ -46,15 +47,24 @@ const Sidebar = ({ isopen }: any) => {
             </li>
             <li>
               <Link
-                href="#"
+                href="/feed"
                 className="flex items-center px-2 py-2 text-gray-700 hover:bg-gray-100 rounded text-sm"
+              >
+                <Flame className="w-4 h-4 mr-2 lg:mr-3 text-orange-500" />
+                Community Feed
+              </Link>
+            </li>
+            <li>
+              <button
+                type="button"
+                className="flex w-full items-center px-2 py-2 text-left text-gray-700 hover:bg-gray-100 rounded text-sm"
               >
                 <Bot className="w-4 h-4 mr-2 lg:mr-3" />
                 AI Assist
                 <Badge variant="secondary" className="ml-auto text-xs">
                   Labs
                 </Badge>
-              </Link>
+              </button>
             </li>
             <li>
               <Link
@@ -75,18 +85,18 @@ const Sidebar = ({ isopen }: any) => {
               </Link>
             </li>
             <li>
-              <Link
-                href="#"
-                className="flex items-center px-2 py-2 text-gray-700 hover:bg-gray-100 rounded text-sm"
+              <button
+                type="button"
+                className="flex w-full items-center px-2 py-2 text-left text-gray-700 hover:bg-gray-100 rounded text-sm"
               >
                 <Bookmark className="w-4 h-4 mr-2 lg:mr-3" />
                 Saves
-              </Link>
+              </button>
             </li>
             <li>
-              <Link
-                href="#"
-                className="flex items-center px-2 py-2 text-gray-700 hover:bg-gray-100 rounded text-sm"
+              <button
+                type="button"
+                className="flex w-full items-center px-2 py-2 text-left text-gray-700 hover:bg-gray-100 rounded text-sm"
               >
                 <Trophy className="w-4 h-4 mr-2 lg:mr-3" />
                 Challenges
@@ -96,25 +106,25 @@ const Sidebar = ({ isopen }: any) => {
                 >
                   NEW
                 </Badge>
-              </Link>
+              </button>
             </li>
             <li>
-              <Link
-                href="#"
-                className="flex items-center px-2 py-2 text-gray-700 hover:bg-gray-100 rounded text-sm"
+              <button
+                type="button"
+                className="flex w-full items-center px-2 py-2 text-left text-gray-700 hover:bg-gray-100 rounded text-sm"
               >
                 <MessageSquare className="w-4 h-4 mr-2 lg:mr-3" />
                 Chat
-              </Link>
+              </button>
             </li>
             <li>
-              <Link
-                href="#"
-                className="flex items-center px-2 py-2 text-gray-700 hover:bg-gray-100 rounded text-sm"
+              <button
+                type="button"
+                className="flex w-full items-center px-2 py-2 text-left text-gray-700 hover:bg-gray-100 rounded text-sm"
               >
                 <FileText className="w-4 h-4 mr-2 lg:mr-3" />
                 Articles
-              </Link>
+              </button>
             </li>
 
             <li>
@@ -146,13 +156,13 @@ const Sidebar = ({ isopen }: any) => {
             </li>
 
             <li>
-              <Link
-                href="#"
-                className="flex items-center px-2 py-2 text-gray-700 hover:bg-gray-100 rounded text-sm"
+              <button
+                type="button"
+                className="flex w-full items-center px-2 py-2 text-left text-gray-700 hover:bg-gray-100 rounded text-sm"
               >
                 <Building className="w-4 h-4 mr-2 lg:mr-3" />
                 Companies
-              </Link>
+              </button>
             </li>
           </ul>
         </nav>
