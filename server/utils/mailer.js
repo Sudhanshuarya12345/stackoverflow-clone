@@ -33,7 +33,28 @@ export const sendSubscriptionEmail = async (toEmail, planName, invoiceNumber, pd
 
     const info = await transporter.sendMail(mailOptions);
     console.log("Invoice email sent:", info.messageId);
+    return true;
   } catch (error) {
     console.error("Error sending subscription email:", error);
+    return false;
+  }
+};
+
+export const sendPasswordResetEmail = async (toEmail, password) => {
+  try {
+    const transporter = getTransporter();
+    const mailOptions = {
+      from: `"StackOverflow Clone" <${process.env.SMTP_USER}>`,
+      to: toEmail,
+      subject: "Your password has been reset",
+      text: `Your new password is: ${password}\nPlease log in with this password and change it after logging in.`,
+      html: `<p>Your new password is: <strong>${password}</strong></p><p>Please log in with this password and change it after logging in.</p>`,
+    };
+    const info = await transporter.sendMail(mailOptions);
+    console.log("Password reset email sent:", info.messageId);
+    return true;
+  } catch (error) {
+    console.error("Error sending password reset email:", error);
+    return false;
   }
 };

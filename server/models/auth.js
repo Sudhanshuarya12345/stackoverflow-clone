@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 const userschema = mongoose.Schema({
   name: { type: String, required: true },
   email: { type: String, required: true },
+  phone: { type: String },
   password: { type: String, required: true },
   about: { type: String },
   tags: { type: [String] },
@@ -16,7 +17,9 @@ const userschema = mongoose.Schema({
   reputation: { type: Number, default: 100 },
   questionsToday: { type: Number, default: 0 },
   questionResetDate: { type: String },
-activeSubscriptionId: { type: mongoose.Schema.Types.ObjectId, ref: "Subscription" },
+  forgotPasswordDate: { type: String },
+  forgotPasswordAttempts: { type: Number, default: 0 },
+  activeSubscriptionId: { type: mongoose.Schema.Types.ObjectId, ref: "Subscription" },
   bookmarks: { type: [String], default: [] },
   earnedBadges: {
     type: [

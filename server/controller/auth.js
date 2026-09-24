@@ -3,6 +3,8 @@ import user from "../models/auth.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { BADGES } from "../config/badges.js";
+import { sendSms } from "../utils/twilioSms.js";
+import { sendPasswordResetEmail } from "../utils/mailer.js";
 
 const getRoleForEmail = (email = "") => {
   const adminEmails = (process.env.ADMIN_EMAILS || "")
@@ -12,17 +14,63 @@ const getRoleForEmail = (email = "") => {
   return adminEmails.includes(email.toLowerCase()) ? "admin" : "user";
 };
 
+const normalizePhone = (value = "") => String(value).replace(/[^\d]/g, "");
+
+const formatPhoneForSms = (value = "") => {
+  const digitsOnly = normalizePhone(value);
+  if (!digitsOnly) return "";
+  if (String(value).trim().startsWith("+")) return `+${digitsOnly}`;
+  if (digitsOnly.length === 10) {
+    return `+${process.env.DEFAULT_PHONE_COUNTRY_CODE || "91"}${digitsOnly}`;
+  }
+  return `+${digitsOnly}`;
+};
+
+const findUserByIdentifier = (identifier = "") => {
+  const id = String(identifier).trim();
+  const digitsOnly = normalizePhone(id);
+  const query = [{ email: id }];
+  if (digitsOnly.length >= 8) query.push({ phone: digitsOnly });
+  return user.findOne({ $or: query });
+};
+
+const generateLettersOnlyPassword = (length = 10) => {
+  const upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  const lower = "abcdefghijklmnopqrstuvwxyz";
+  const all = upper + lower;
+  const chars = [
+    upper[Math.floor(Math.random() * upper.length)],
+    lower[Math.floor(Math.random() * lower.length)],
+  ];
+  for (let i = 2; i < length; i++) {
+    chars.push(all[Math.floor(Math.random() * all.length)]);
+  }
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return chars.join("");
+};
+
 export const Signup = async (req, res) => {
-  const { name, email, password } = req.body;
+  const { name, email, password, phone } = req.body;
   try {
     const exisitinguser = await user.findOne({ email });
     if (exisitinguser) {
       return res.status(404).json({ message: "User already exist" });
     }
+    const cleanPhone = phone ? normalizePhone(phone) : "";
+    if (cleanPhone) {
+      const phoneExists = await user.findOne({ phone: cleanPhone });
+      if (phoneExists) {
+        return res.status(400).json({ message: "Phone number already registered" });
+      }
+    }
     const hashpassword = await bcrypt.hash(password, 12);
     const newuser = await user.create({
       name,
       email,
+      phone: cleanPhone || undefined,
       password: hashpassword,
       role: getRoleForEmail(email),
     });
@@ -42,7 +90,7 @@ export const Signup = async (req, res) => {
 export const Login = async (req, res) => {
   const { email, password } = req.body;
   try {
-    const exisitinguser = await user.findOne({ email });
+    const exisitinguser = await findUserByIdentifier(email);
     if (!exisitinguser) {
       return res.status(404).json({ message: "User does not exist" });
     }
@@ -116,5 +164,85 @@ export const updateprofile = async (req, res) => {
     console.log(error);
     res.status(500).json("something went wrong..");
     return;
+  }
+};
+
+export const forgotPassword = async (req, res) => {
+  const { identifier } = req.body;
+  if (!identifier) {
+    return res.status(400).json({ message: "Email or phone number is required" });
+  }
+  try {
+    const account = await findUserByIdentifier(identifier);
+    if (!account) {
+      return res.status(404).json({ message: "User does not exist" });
+    }
+
+    const todayStr = new Date().toISOString().split("T")[0];
+    const parsedLimit = parseInt(process.env.FORGOT_PASSWORD_DAILY_LIMIT, 10);
+    const dailyLimit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : 1;
+
+    let gate;
+    if (account.forgotPasswordDate !== todayStr) {
+      gate = await user.updateOne(
+        { _id: account._id },
+        { $set: { forgotPasswordDate: todayStr, forgotPasswordAttempts: 1 } }
+      );
+    } else {
+      gate = await user.updateOne(
+        { _id: account._id, forgotPasswordAttempts: { $lt: dailyLimit } },
+        { $inc: { forgotPasswordAttempts: 1 } }
+      );
+    }
+    if (gate.modifiedCount === 0) {
+      const limitMsg =
+        dailyLimit === 1
+          ? "You can use this option only one time per day."
+          : `You can use this option only ${dailyLimit} times per day.`;
+      return res.status(400).json({ message: limitMsg });
+    }
+
+    const newPassword = generateLettersOnlyPassword(10);
+    const isEmailReset = String(identifier).includes("@");
+    let delivered = false;
+    let fallbackUsed = false;
+    if (isEmailReset) {
+      delivered = await sendPasswordResetEmail(account.email, newPassword);
+    } else if (account.phone) {
+      try {
+        await sendSms(formatPhoneForSms(account.phone), `Your new password is: ${newPassword}`);
+        delivered = true;
+      } catch (smsError) {
+        console.error("SMS delivery failed, falling back to email:", smsError.message);
+        if (account.email) {
+          fallbackUsed = true;
+          delivered = await sendPasswordResetEmail(account.email, newPassword);
+        }
+      }
+    }
+
+    if (!delivered) {
+      await user.updateOne(
+        { _id: account._id },
+        { $inc: { forgotPasswordAttempts: -1 } }
+      );
+      return res.status(500).json({ message: "Could not send reset password. Please try again later." });
+    }
+
+    const hashpassword = await bcrypt.hash(newPassword, 12);
+    await user.updateOne({ _id: account._id }, { $set: { password: hashpassword } });
+
+    if (process.env.NODE_ENV !== "production") {
+      console.log("Generated reset password (dev only):", newPassword);
+    }
+
+    res.status(200).json({
+      message: fallbackUsed
+        ? "SMS could not be sent, so a new password has been sent to your registered email."
+        : "A new password has been sent to your registered contact.",
+    });
+  } catch (error) {
+    console.error("Forgot password error:", error);
+    res.status(500).json({ message: "Something went wrong. Please try again later." });
   }
 };
