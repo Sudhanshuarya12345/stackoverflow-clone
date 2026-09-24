@@ -69,13 +69,14 @@ export const AuthProvider = ({ children }) => {
     };
   }, [user]);
 
-  const Signup = async ({ name, email, password }) => {
+  const Signup = async ({ name, email, password, phone }) => {
     setloading(true);
     seterror(null);
     try {
       const res = await axiosInstance.post("/user/signup", {
         name,
         email,
+        phone: phone || undefined,
         password,
       });
       const { data, token } = res.data;
@@ -126,9 +127,25 @@ export const AuthProvider = ({ children }) => {
       return newUser;
     });
   };
+  const forgotPassword = async (identifier) => {
+    setloading(true);
+    seterror(null);
+    try {
+      const res = await axiosInstance.post("/user/forgot-password", { identifier });
+      toast.success(res.data.message || "New password sent to your email or phone.");
+      return res.data;
+    } catch (error) {
+      const msg = error.response?.data.message || "Password reset failed";
+      seterror(msg);
+      toast.error(msg);
+      throw error;
+    } finally {
+      setloading(false);
+    }
+  };
   return (
     <AuthContext.Provider
-      value={{ user, Signup, Login, Logout, updateLocalUser, loading, error, authReady }}
+      value={{ user, Signup, Login, Logout, updateLocalUser, forgotPassword, loading, error, authReady }}
     >
       {children}
     </AuthContext.Provider>

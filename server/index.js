@@ -55,3 +55,14 @@ setInterval(async () => {
   .catch((err) => {
     console.error("❌ MongoDB connection error:", err.message);
   });
+
+
+
+  app.use((req, res) => {
+    console.log("❌ UNMATCHED ROUTE:", req.method, req.originalUrl);
+    res.status(404).json({
+      message: "Route not found",
+      method: req.method,
+      path: req.originalUrl
+    });
+  });

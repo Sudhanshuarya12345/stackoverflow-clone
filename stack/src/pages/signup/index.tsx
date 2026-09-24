@@ -18,7 +18,7 @@ import { toast } from "react-toastify";
 export default function SignUpPage() {
   const router = useRouter();
   const { Signup, loading } = useAuth();
-  const [form, setform] = useState({ name: "", email: "", password: "" });
+  const [form, setform] = useState({ name: "", email: "", phone: "", password: "" });
   const handleChange = (e: any) => {
     setform({ ...form, [e.target.id]: e.target.value });
   };
@@ -137,6 +137,21 @@ export default function SignUpPage() {
                   value={form.email}
                   onChange={handleChange}
                 />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="phone" className="text-sm">
+                  Phone (optional)
+                </Label>
+                <Input
+                  id="phone"
+                  type="tel"
+                  placeholder="+91 98765 43210"
+                  value={form.phone}
+                  onChange={handleChange}
+                />
+                <p className="text-xs text-gray-600">
+                  Used for SMS password resets.
+                </p>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="password" className="text-sm">
