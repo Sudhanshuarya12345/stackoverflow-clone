@@ -1,13 +1,10 @@
-import jwt from "jsonwebtoken";
+import { resolveSession } from "./auth.js";
 
-const optionalAuth = (req, res, next) => {
+const optionalAuth = async (req, res, next) => {
   try {
-    const header = req.headers.authorization;
-    if (header?.startsWith("Bearer ")) {
-      const token = header.split(" ")[1];
-      const decodedata = jwt.verify(token, process.env.JWT_SECRET);
-      req.userid = decodedata?.id;
-    }
+    const resolved = await resolveSession(req);
+    req.userid = resolved?.userId || null;
+    req.sessionId = resolved?.session._id;
   } catch (error) {
     req.userid = null;
   }

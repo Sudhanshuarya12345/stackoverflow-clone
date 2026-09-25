@@ -3,6 +3,7 @@ import Script from "next/script";
 import Mainlayout from "@/layout/Mainlayout";
 import { useAuth } from "@/lib/AuthContext";
 import axiosInstance from "@/lib/axiosinstance";
+import { useI18n } from "@/lib/i18n";
 import { useState } from "react";
 import { toast } from "react-toastify";
 import { Check, Star } from "lucide-react";
@@ -10,53 +11,21 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 
 const PLANS = [
-    {
-        id: "free",
-        name: "Free",
-        price: "₹0",
-        period: "forever",
-        description: "Basic features for occasional users.",
-        features: ["1 question/day", "Basic search only", "Standard profile visibility"],
-        color: "bg-gray-200 border-gray-300 text-gray-800",
-    },
-    {
-        id: "bronze",
-        name: "Bronze",
-        price: "₹99",
-        period: "per month",
-        description: "Great for active community participants.",
-        features: ["5 questions/day", "Bronze profile badge", "Advanced search filters"],
-        color: "bg-[#cd7f32]/20 border-[#cd7f32] text-[#8c5722]",
-    },
-    {
-        id: "silver",
-        name: "Silver",
-        price: "₹299",
-        period: "per month",
-        description: "Enhanced visibility and priority support.",
-        features: ["15 questions/day", "Silver profile badge", "Enhanced profile visibility", "Priority support flag", "Unlimited bookmarks"],
-        color: "bg-[#c0c0c0]/20 border-[#999999] text-[#666666]",
-    },
-    {
-        id: "gold",
-        name: "Gold",
-        price: "₹999",
-        period: "per month",
-        description: "The ultimate StackOverflow experience.",
-        features: ["Unlimited questions", "Gold profile badge", "Highest search priority", "Featured profile visibility", "Priority support", "Exclusive community features"],
-        color: "bg-[#ffd700]/20 border-[#e5c100] text-[#b29600]",
-        popular: true,
-    },
+    { id: "free", price: "₹0", featureCount: 3, color: "bg-gray-200 border-gray-300 text-gray-800" },
+    { id: "bronze", price: "₹99", featureCount: 3, color: "bg-[#cd7f32]/20 border-[#cd7f32] text-[#8c5722]" },
+    { id: "silver", price: "₹299", featureCount: 5, color: "bg-[#c0c0c0]/20 border-[#999999] text-[#666666]" },
+    { id: "gold", price: "₹999", featureCount: 6, color: "bg-[#ffd700]/20 border-[#e5c100] text-[#b29600]", popular: true },
 ];
 
 export default function PricingPage() {
     const { user, updateLocalUser } = useAuth();
+    const { t } = useI18n();
     const [loadingPlan, setLoadingPlan] = useState("");
     const router = useRouter();
 
     const handleSubscribe = async (planId: string) => {
         if (!user) {
-            toast.error("Please log in to subscribe");
+            toast.error(t("pricing.loginRequired"));
             router.push("/auth");
             return;
         }
@@ -71,10 +40,10 @@ export default function PricingPage() {
                 key: key_id,
                 subscription_id: subscription_id,
                 name: "StackOverflow Clone",
-                description: `${planId.toUpperCase()} Plan Subscription`,
+                description: t("pricing.checkoutDescription", { plan: t(`plan.${planId}` as any) }),
                 image: "/logo.png",
                 handler: async function (response: any) {
-                    toast.success("Payment successful! Verifying subscription...");
+                    toast.success(t("pricing.verifying"));
                     for (let attempt = 0; attempt < 6; attempt += 1) {
                         try {
                             const reconcile = await axiosInstance.post("/api/subscriptions/reconcile");
@@ -89,7 +58,7 @@ export default function PricingPage() {
                         }
                         await new Promise((resolve) => setTimeout(resolve, 2000));
                     }
-                    toast.info("Payment received. Your plan will update when Razorpay confirmation arrives.");
+                    toast.info(t("pricing.pending"));
                     router.push("/subscription/dashboard");
                 },
                 prefill: {
@@ -99,15 +68,19 @@ export default function PricingPage() {
                 theme: {
                     color: "#f97316", // orange-500
                 },
+                modal: {
+                    // Closing the popup leaves an unpaid subscription; the server replaces it on the next attempt.
+                    ondismiss: () => toast.info(t("pricing.dismissed")),
+                },
             };
 
             const rzp = new (window as any).Razorpay(options);
             rzp.on("payment.failed", function (response: any) {
-                toast.error("Payment failed. Please try again.");
+                toast.error(t("pricing.failed"));
             });
             rzp.open();
         } catch (error: any) {
-            toast.error(error.response?.data?.message || "Failed to initiate subscription");
+            toast.error(error.response?.data?.message || t("common.error"));
         } finally {
             setLoadingPlan("");
         }
@@ -116,64 +89,64 @@ export default function PricingPage() {
     return (
         <Mainlayout>
             <Head>
-                <title>Premium Plans - StackOverflow</title>
+                <title>{t("nav.premium")}</title>
             </Head>
             <Script src="https://checkout.razorpay.com/v1/checkout.js" />
 
-            <div className="max-w-6xl mx-auto py-12 px-4 sm:px-6 lg:px-8 bg-white min-h-screen">
+            <div className="max-w-6xl mx-auto py-6 sm:py-12 sm:px-6 lg:px-8 bg-white min-h-screen">
                 <div className="text-center max-w-3xl mx-auto mb-16">
-                    <h1 className="text-4xl font-extrabold text-gray-900 tracking-tight sm:text-5xl">
-                        Upgrade your StackOverflow experience
+                    <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight sm:text-5xl">
+                        {t("pricing.title")}
                     </h1>
                     <p className="mt-4 text-xl text-gray-500">
-                        Choose a plan that fits your needs. Ask more questions, get better visibility, and stand out.
+                        {t("pricing.subtitle")}
                     </p>
 
                     {user && (
                         <div className="mt-6 inline-flex flex-col items-center">
                             <Link href="/subscription/dashboard" className="text-orange-600 hover:text-orange-800 font-medium hover:underline">
-                                View your active subscription &rarr;
+                                {t("pricing.viewActive")} &rarr;
                             </Link>
                             {user.plan && user.plan !== "free" && (
                                 <p className="mt-2 text-xs text-gray-500">
-                                    You're on the {user.plan} plan. To change plans, cancel your current subscription from the dashboard first.
+                                    {t("pricing.changePlanNote", { plan: t(`plan.${user.plan}` as any) })}
                                 </p>
                             )}
                         </div>
                     )}
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-8">
                     {PLANS.map((plan) => (
                         <div
                             key={plan.id}
-                            className={`rounded-2xl shadow-xl flex flex-col relative ${plan.popular ? 'border-2 border-orange-500 transform scale-105 z-10' : 'border border-gray-200'
+                            className={`rounded-2xl shadow-xl flex flex-col relative ${plan.popular ? 'border-2 border-orange-500 xl:scale-105 z-10' : 'border border-gray-200'
                                 } ${plan.color.split(' ')[0]}`}
                         >
                             {plan.popular && (
                                 <div className="absolute top-0 right-0 -translate-y-1/2 translate-x-1/2">
                                     <span className="inline-flex items-center justify-center rounded-full bg-gradient-to-r from-orange-400 to-orange-600 px-3 py-1 text-xs font-bold font-medium text-white shadow-sm ring-1 ring-inset ring-orange-500/20 uppercase tracking-widest whitespace-nowrap">
-                                        <Star className="w-3 h-3 mr-1 fill-white" /> Popular
+                                        <Star className="w-3 h-3 mr-1 fill-white" /> {t("pricing.popular")}
                                     </span>
                                 </div>
                             )}
 
                             <div className="p-8 pb-0">
                                 <h3 className={`text-xl font-bold uppercase tracking-wider ${plan.color.split(' ')[2]}`}>
-                                    {plan.name}
+                                    {t(`plan.${plan.id}` as any)}
                                 </h3>
                                 <div className="mt-4 flex items-baseline text-5xl font-extrabold text-gray-900">
                                     {plan.price}
-                                    <span className="ml-1 text-xl font-medium text-gray-500">/{plan.period.split(' ')[1] || 'mo'}</span>
+                                    <span className="ml-1 text-xl font-medium text-gray-500">{t("pricing.perMonth")}</span>
                                 </div>
                                 <p className="mt-4 text-sm text-gray-600 font-medium">
-                                    {plan.description}
+                                    {t(`pricing.${plan.id}.description` as any)}
                                 </p>
                             </div>
 
                             <div className="flex flex-1 flex-col justify-between p-8 pt-6">
                                 <ul role="list" className="space-y-4">
-                                    {plan.features.map((feature, idx) => (
+                                    {Array.from({ length: plan.featureCount }, (_, i) => t(`pricing.${plan.id}.f${i + 1}` as any)).map((feature, idx) => (
                                         <li key={idx} className="flex items-start">
                                             <div className="flex-shrink-0">
                                                 <Check className="h-5 w-5 text-green-500" aria-hidden="true" />
@@ -193,7 +166,7 @@ export default function PricingPage() {
                                             : "bg-white text-orange-600 border border-orange-200 hover:bg-orange-50"
                                         }`}
                                 >
-                                    {loadingPlan === plan.id ? "Loading..." : plan.id === "free" ? "Current default" : `Subscribe to ${plan.name}`}
+                                    {loadingPlan === plan.id ? t("common.loading") : plan.id === "free" ? t("pricing.currentDefault") : t("pricing.subscribe", { plan: t(`plan.${plan.id}` as any) })}
                                 </button>
                             </div>
                         </div>

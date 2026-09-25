@@ -2,36 +2,13 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import Mainlayout from "@/layout/Mainlayout";
 import axiosInstance from "@/lib/axiosinstance";
-import { Calendar, Crown, Search, Sparkles } from "lucide-react";
+import { useI18n } from "@/lib/i18n";
+import PlanBadge from "@/components/PlanBadge";
+import { Calendar, Crown, Search, Sparkles, Star } from "lucide-react";
 import Link from "next/link";
 import React, { useEffect, useState } from "react";
-const users = [
-  {
-    id: 1,
-    name: "John Doe",
-    username: "johndoe",
-    joinDate: "2019-03-15",
-  },
-  {
-    id: 2,
-    name: "Felix Rodriguez",
-    username: "Felix.leg",
-    joinDate: "2020-07-22",
-  },
-  {
-    id: 3,
-    name: "Alex Smith",
-    username: "Aledi5",
-    joinDate: "2023-11-10",
-  },
-  {
-    id: 4,
-    name: "Sarah Johnson",
-    username: "PR0X",
-    joinDate: "2024-01-05",
-  },
-];
-const index = () => {
+const UsersPage = () => {
+  const { t } = useI18n();
   const [users, setusers] = useState<any>(null);
   const [loading, setloading] = useState(true);
   const [query, setQuery] = useState("");
@@ -57,7 +34,9 @@ const index = () => {
   }
   if (!users || users.length === 0) {
     return (
-      <div className="text-center text-gray-500 mt-4">No users found.</div>
+      <Mainlayout>
+        <div className="text-center text-gray-500 mt-4">{t("users.none")}</div>
+      </Mainlayout>
     );
   }
   const filteredUsers = users.filter((u: any) =>
@@ -66,13 +45,13 @@ const index = () => {
   return (
     <Mainlayout>
       <div className="max-w-6xl">
-        <h1 className="text-xl lg:text-2xl font-semibold mb-6">Users</h1>
+        <h1 className="text-xl lg:text-2xl font-semibold mb-6">{t("nav.users")}</h1>
 
         <div className="mb-6">
           <div className="relative max-w-md">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
             <Input
-              placeholder="Filter by user"
+              placeholder={t("users.filter")}
               className="pl-10"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -99,12 +78,12 @@ const index = () => {
                 >
                   {isGold && (
                     <div className="flex items-center mb-2 text-amber-600 text-xs font-semibold">
-                      <Crown className="w-3.5 h-3.5 mr-1" /> Featured Profile
+                      <Crown className="w-3.5 h-3.5 mr-1" /> {t("profile.featured")}
                     </div>
                   )}
                   {isSilver && (
                     <div className="flex items-center mb-2 text-gray-500 text-xs font-semibold">
-                      <Sparkles className="w-3.5 h-3.5 mr-1" /> Enhanced Profile
+                      <Sparkles className="w-3.5 h-3.5 mr-1" /> {t("profile.enhanced")}
                     </div>
                   )}
                   <div className="flex items-center mb-3">
@@ -120,30 +99,17 @@ const index = () => {
                       <h3 className="font-semibold text-blue-600 hover:text-blue-800 truncate">
                         {user.name}
                       </h3>
-                      <p className="text-sm text-gray-600 truncate">
-                        @{user.name}
+                      <p className="flex items-center text-sm text-gray-600">
+                        <Star className="w-3.5 h-3.5 mr-1 text-yellow-500" /> {user.reputation ?? 0}
                       </p>
                     </div>
                   </div>
 
                   <div className="flex items-center text-sm text-gray-600 mb-3">
                     <Calendar className="w-4 h-4 mr-1" />
-                    <span>Joined {new Date(user.joinDate).getFullYear()}</span>
+                    <span>{t("users.joined", { year: new Date(user.joinDate).getFullYear() })}</span>
                   </div>
-                  {user.plan && (
-                    <span
-                      className={`inline-block px-2 py-0.5 rounded text-xs font-bold uppercase tracking-wider text-white ${user.plan === "gold"
-                        ? "bg-[#ffd700] text-gray-900"
-                        : user.plan === "silver"
-                          ? "bg-[#c0c0c0] text-gray-900"
-                          : user.plan === "bronze"
-                            ? "bg-[#cd7f32]"
-                            : ""
-                        }`}
-                    >
-                      {user.plan}
-                    </span>
-                  )}
+                  <PlanBadge plan={user.plan} />
                 </div>
               </Link>
             );
@@ -154,4 +120,4 @@ const index = () => {
   );
 };
 
-export default index;
+export default UsersPage;

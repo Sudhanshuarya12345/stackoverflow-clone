@@ -17,6 +17,19 @@ const verifySignature = (reqBodyBuffer, signature) => {
   return expected.length === received.length && crypto.timingSafeEqual(expected, received);
 };
 
+const PLAN_FEATURE_TEXT = {
+  bronze: ["5 questions per day", "Bronze profile badge", "Advanced search filters"],
+  silver: ["15 questions per day", "Silver profile badge", "Priority support", "Enhanced profile visibility", "Unlimited bookmarks"],
+  gold: [
+    "Unlimited questions",
+    "Gold profile badge",
+    "Highest search priority",
+    "Featured profile visibility",
+    "Priority customer support",
+    "Exclusive community access",
+  ],
+};
+
 const invoiceNumberForPayment = (paymentId) => {
   return `INV-${new Date().toISOString().split("T")[0].replace(/-/g, "")}-${paymentId}`.toUpperCase();
 };
@@ -55,6 +68,7 @@ const markSubscriptionEndedAtPeriodEnd = async (subPayload, status) => {
 };
 
 export const handleRazorpayWebhook = async (req, res) => {
+  let eventRecordId;
   try {
     const signature = req.headers["x-razorpay-signature"];
     if (!verifySignature(req.body, signature)) {
@@ -74,6 +88,7 @@ export const handleRazorpayWebhook = async (req, res) => {
       }
       throw error;
     }
+    eventRecordId = eventId;
 
     if (type === "subscription.activated") {
       const subPayload = payload.subscription.entity;
@@ -92,10 +107,19 @@ export const handleRazorpayWebhook = async (req, res) => {
       const subPayload = payload.subscription.entity;
       const paymentPayload = payload.payment.entity;
 
-      // Upsert Subscription
-      const sub = await Subscription.findOneAndUpdate(
-        { razorpay_subscription_id: subPayload.id },
-        { 
+      // Validate the charged amount against our plan price BEFORE granting access.
+      const existingSub = await Subscription.findOne({ razorpay_subscription_id: subPayload.id });
+      if (existingSub) {
+        try {
+          assertPaymentMatchesPlan(paymentPayload, existingSub.plan);
+        } catch (mismatch) {
+          console.error("Rejected subscription.charged:", mismatch.message);
+          return res.status(200).send("Payment does not match plan; not activated");
+        }
+      }
+      const sub = existingSub && await Subscription.findOneAndUpdate(
+        { _id: existingSub._id },
+        {
           status: "active",
           current_period_start: new Date(subPayload.current_start * 1000),
           current_period_end: new Date(subPayload.current_end * 1000)
@@ -104,7 +128,6 @@ export const handleRazorpayWebhook = async (req, res) => {
       );
 
       if (sub) {
-        assertPaymentMatchesPlan(paymentPayload, sub.plan);
 
         // Upsert Payment (Idempotent)
         const existingPayment = await Payment.findOne({ razorpay_payment_id: paymentPayload.id });
@@ -132,9 +155,16 @@ export const handleRazorpayWebhook = async (req, res) => {
           const user = await User.findById(sub.userId);
           if (user) {
             const pdfBuffer = await generateInvoicePdfBuffer(newPayment, user, { name: sub.plan.toUpperCase() });
-            await sendSubscriptionEmail(user.email, sub.plan.toUpperCase(), invoiceNumber, pdfBuffer);
-            newPayment.invoice_email_sent_at = new Date();
-            await newPayment.save();
+            const planConfig = PLANS[sub.plan];
+            const sent = await sendSubscriptionEmail(user.email, sub.plan.toUpperCase(), invoiceNumber, pdfBuffer, {
+              amount: `${planConfig.currency} ${(newPayment.amount / 100).toFixed(2)} / month`,
+              periodEnd: sub.current_period_end ? sub.current_period_end.toDateString() : undefined,
+              features: PLAN_FEATURE_TEXT[sub.plan],
+            });
+            if (sent) {
+              newPayment.invoice_email_sent_at = new Date();
+              await newPayment.save();
+            }
           }
         } else {
           await User.findByIdAndUpdate(sub.userId, { plan: sub.plan, activeSubscriptionId: sub._id });
@@ -179,6 +209,8 @@ export const handleRazorpayWebhook = async (req, res) => {
     res.status(200).send("OK");
   } catch (error) {
     console.error("Webhook processing error:", error);
+    // Forget the event so Razorpay's automatic retry is processed instead of being ignored as a duplicate.
+    if (eventRecordId) await WebhookEvent.deleteOne({ eventId: eventRecordId }).catch(() => {});
     res.status(500).send("Internal Error");
   }
 };

@@ -1,173 +1,140 @@
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/lib/AuthContext";
+import { useI18n } from "@/lib/i18n";
+import type { TranslationKey } from "@/locales";
 import {
+  Activity,
+  Bell,
   Bookmark,
   Bot,
   Building,
+  Crown,
   FileText,
   Flame,
   Home,
+  LifeBuoy,
   MessageSquare,
   MessageSquareIcon,
+  Settings,
+  ShieldAlert,
   Tag,
   Trophy,
   Users,
+  X,
 } from "lucide-react";
-import Link from "next/link";
-import React from "react";
 import { Badge } from "./ui/badge";
+import Link from "next/link";
+import { useRouter } from "next/router";
+import React from "react";
 
-const Sidebar = ({ isopen }: any) => {
+// Items without an href are placeholders carried over from the original design (not wired up yet).
+type NavItem = {
+  href?: string;
+  label: TranslationKey;
+  icon: React.ElementType;
+  iconClass?: string;
+  badge?: { label: TranslationKey; className?: string };
+};
+
+const Sidebar = ({ isopen, onClose }: { isopen: boolean; onClose: () => void }) => {
+  const { user } = useAuth();
+  const { t } = useI18n();
+  const router = useRouter();
+
+  const items: NavItem[] = [
+    { href: "/", label: "nav.home", icon: Home },
+    { href: "/questions", label: "nav.questions", icon: MessageSquareIcon },
+    { href: "/feed", label: "nav.feed", icon: Flame, iconClass: "text-orange-500" },
+    { label: "nav.aiAssist", icon: Bot, badge: { label: "nav.labs" } },
+    { href: "/tags", label: "nav.tags", icon: Tag },
+    { href: "/users", label: "nav.users", icon: Users },
+    { label: "nav.saves", icon: Bookmark },
+    { label: "nav.challenges", icon: Trophy, badge: { label: "nav.new", className: "bg-orange-100 text-orange-800" } },
+    { label: "nav.chat", icon: MessageSquare },
+    { label: "nav.articles", icon: FileText },
+    ...(user ? [{ href: "/notifications", label: "nav.notifications" as TranslationKey, icon: Bell }] : []),
+    { href: "/support", label: "nav.support", icon: LifeBuoy },
+    { href: "/community", label: "nav.goldCommunity", icon: Crown, iconClass: "text-amber-500" },
+    { href: "/subscription", label: "nav.premium", icon: Trophy, iconClass: "text-orange-500" },
+    { label: "nav.companies", icon: Building },
+    ...(user ? [{ href: "/settings", label: "nav.settings" as TranslationKey, icon: Settings }] : []),
+  ];
+  const adminItems: NavItem[] =
+    user?.role === "admin"
+      ? [
+          { href: "/admin/moderation", label: "nav.moderation", icon: ShieldAlert, iconClass: "text-red-500" },
+          { href: "/admin/login-activity", label: "nav.loginActivity", icon: Activity, iconClass: "text-red-500" },
+        ]
+      : [];
+
+  const isActive = (href: string) => (href === "/" ? router.pathname === "/" : router.pathname.startsWith(href));
+
+  const renderItem = (item: NavItem) => {
+    const Icon = item.icon;
+    const content = (
+      <>
+        <Icon className={cn("w-4 h-4 mr-3 shrink-0", item.iconClass)} />
+        {t(item.label)}
+        {item.badge && (
+          <Badge variant="secondary" className={cn("ml-auto text-xs", item.badge.className)}>
+            {t(item.badge.label)}
+          </Badge>
+        )}
+      </>
+    );
+    return (
+      <li key={item.label}>
+        {item.href ? (
+          <Link
+            href={item.href}
+            className={cn(
+              "flex items-center px-2 py-2 rounded text-sm",
+              isActive(item.href) ? "bg-orange-50 font-semibold text-orange-800" : "text-gray-700 hover:bg-gray-100"
+            )}
+          >
+            {content}
+          </Link>
+        ) : (
+          <button type="button" className="flex w-full items-center px-2 py-2 text-left text-gray-700 hover:bg-gray-100 rounded text-sm">
+            {content}
+          </button>
+        )}
+      </li>
+    );
+  };
+
   return (
-    <div>
+    <>
+      {/* Backdrop for the mobile drawer */}
+      <div
+        className={cn("fixed inset-0 z-30 bg-black/40 md:hidden", isopen ? "block" : "hidden")}
+        onClick={onClose}
+        aria-hidden="true"
+      />
       <aside
         className={cn(
-          " top-[53px]  w-48 lg:w-64 min-h-screen bg-white shadow-sm border-r transition-transform duration-200 ease-in-out md:translate-x-0",
+          "fixed inset-y-0 left-0 z-40 w-64 overflow-y-auto bg-white shadow-lg transition-transform duration-200 ease-in-out",
+          "md:sticky md:top-0 md:z-auto md:h-auto md:min-h-screen md:w-48 md:translate-x-0 md:shadow-sm md:border-r lg:w-60",
           isopen ? "translate-x-0" : "-translate-x-full"
         )}
       >
+        <div className="flex items-center justify-between border-b p-3 md:hidden">
+          <span className="font-semibold text-gray-800">{t("nav.menu")}</span>
+          <button type="button" onClick={onClose} aria-label={t("common.close")} className="rounded p-1 hover:bg-gray-100">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
         <nav className="p-2 lg:p-4">
-          <ul className="space-y-1">
-            <li>
-              <Link
-                href="/"
-                className="flex items-center px-2 py-2 text-gray-700 hover:bg-gray-100 rounded text-sm"
-              >
-                <Home className="w-4 h-4 mr-2 lg:mr-3" />
-                Home
-              </Link>
-            </li>
-            <li>
-              <Link
-                href="/questions"
-                className="flex items-center px-2 py-2 text-gray-700 hover:bg-gray-100 rounded text-sm"
-              >
-                <MessageSquareIcon className="w-4 h-4 mr-2 lg:mr-3" />
-                Questions
-              </Link>
-            </li>
-            <li>
-              <Link
-                href="/feed"
-                className="flex items-center px-2 py-2 text-gray-700 hover:bg-gray-100 rounded text-sm"
-              >
-                <Flame className="w-4 h-4 mr-2 lg:mr-3 text-orange-500" />
-                Community Feed
-              </Link>
-            </li>
-            <li>
-              <button
-                type="button"
-                className="flex w-full items-center px-2 py-2 text-left text-gray-700 hover:bg-gray-100 rounded text-sm"
-              >
-                <Bot className="w-4 h-4 mr-2 lg:mr-3" />
-                AI Assist
-                <Badge variant="secondary" className="ml-auto text-xs">
-                  Labs
-                </Badge>
-              </button>
-            </li>
-            <li>
-              <Link
-                href="/tags"
-                className="flex items-center px-2 py-2 text-gray-700 hover:bg-gray-100 rounded text-sm"
-              >
-                <Tag className="w-4 h-4 mr-2 lg:mr-3" />
-                Tags
-              </Link>
-            </li>
-            <li>
-              <Link
-                href="/users"
-                className="flex items-center px-2 py-2 text-gray-700 hover:bg-gray-100 rounded text-sm"
-              >
-                <Users className="w-4 h-4 mr-2 lg:mr-3" />
-                Users
-              </Link>
-            </li>
-            <li>
-              <button
-                type="button"
-                className="flex w-full items-center px-2 py-2 text-left text-gray-700 hover:bg-gray-100 rounded text-sm"
-              >
-                <Bookmark className="w-4 h-4 mr-2 lg:mr-3" />
-                Saves
-              </button>
-            </li>
-            <li>
-              <button
-                type="button"
-                className="flex w-full items-center px-2 py-2 text-left text-gray-700 hover:bg-gray-100 rounded text-sm"
-              >
-                <Trophy className="w-4 h-4 mr-2 lg:mr-3" />
-                Challenges
-                <Badge
-                  variant="secondary"
-                  className="ml-auto text-xs bg-orange-100 text-orange-800"
-                >
-                  NEW
-                </Badge>
-              </button>
-            </li>
-            <li>
-              <button
-                type="button"
-                className="flex w-full items-center px-2 py-2 text-left text-gray-700 hover:bg-gray-100 rounded text-sm"
-              >
-                <MessageSquare className="w-4 h-4 mr-2 lg:mr-3" />
-                Chat
-              </button>
-            </li>
-            <li>
-              <button
-                type="button"
-                className="flex w-full items-center px-2 py-2 text-left text-gray-700 hover:bg-gray-100 rounded text-sm"
-              >
-                <FileText className="w-4 h-4 mr-2 lg:mr-3" />
-                Articles
-              </button>
-            </li>
-
-            <li>
-              <Link
-                href="/support"
-                className="flex items-center px-2 py-2 text-gray-700 hover:bg-gray-100 rounded text-sm"
-              >
-                <MessageSquare className="w-4 h-4 mr-2 lg:mr-3" />
-                Priority Support
-              </Link>
-            </li>
-            <li>
-              <Link
-                href="/community"
-                className="flex items-center px-2 py-2 text-gray-700 hover:bg-gray-100 rounded text-sm"
-              >
-                <Trophy className="w-4 h-4 mr-2 lg:mr-3 text-amber-500" />
-                Gold Community
-              </Link>
-            </li>
-            <li>
-              <Link
-                href="/subscription"
-                className="flex items-center px-2 py-2 text-gray-700 hover:bg-gray-100 rounded text-sm"
-              >
-                <Trophy className="w-4 h-4 mr-2 lg:mr-3 text-orange-500" />
-                Premium Plans
-              </Link>
-            </li>
-
-            <li>
-              <button
-                type="button"
-                className="flex w-full items-center px-2 py-2 text-left text-gray-700 hover:bg-gray-100 rounded text-sm"
-              >
-                <Building className="w-4 h-4 mr-2 lg:mr-3" />
-                Companies
-              </button>
-            </li>
-          </ul>
+          <ul className="space-y-1">{items.map(renderItem)}</ul>
+          {adminItems.length > 0 && (
+            <>
+              <p className="mt-4 px-2 text-xs font-semibold uppercase tracking-wider text-gray-400">{t("nav.admin")}</p>
+              <ul className="mt-1 space-y-1">{adminItems.map(renderItem)}</ul>
+            </>
+          )}
         </nav>
       </aside>
-    </div>
+    </>
   );
 };
 

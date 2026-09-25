@@ -4,6 +4,13 @@ import Follow from "../models/Follow.js";
 import User from "../models/auth.js";
 import { destroyCommunityImage, uploadCommunityImage } from "../services/cloudinary.js";
 import { extractHashtags, findMentionedUsers, notify, notifyMentions } from "../services/notificationService.js";
+import { PRIVILEGES, penalizeRemovedContent, userHasPrivilege } from "../services/reputationService.js";
+
+const commentPrivilegeError = async (userId, ownerIds) => {
+  if (ownerIds.some((ownerId) => String(ownerId) === String(userId))) return null;
+  if (await userHasPrivilege(userId, "comment")) return null;
+  return `You need ${PRIVILEGES.comment.threshold} reputation to comment on other members' posts.`;
+};
 
 const MAX_IMAGES = 4;
 const MAX_LIMIT = 25;
@@ -27,6 +34,10 @@ const destroyImages = async (images = []) => {
 
 const buildPostResponse = async (post, userId) => {
   const author = await User.findById(post.author).select("name plan role followersCount followingCount").lean();
+  await post.populate([
+    { path: "comments.user", select: "name plan" },
+    { path: "comments.replies.user", select: "name plan" },
+  ]);
   return {
     ...post.toObject(),
     author,
@@ -184,7 +195,11 @@ export const updatePost = async (req, res) => {
     const { content = "", type = "update", images = [], keepImageIds = [], code = {} } = req.body;
     const post = await CommunityPost.findById(id);
     if (!post) return res.status(404).json({ message: "Post not found" });
-    if (String(post.author) !== String(req.userid)) return res.status(403).json({ message: "You can only edit your own posts" });
+    const isOwner = String(post.author) === String(req.userid);
+    if (!isOwner && !(await userHasPrivilege(req.userid, "editCommunityPosts"))) {
+      return res.status(403).json({ message: `You need ${PRIVILEGES.editCommunityPosts.threshold} reputation to edit other members' posts.` });
+    }
+    if (!isOwner && post.status !== "active") return res.status(404).json({ message: "Post not found" });
 
     const removedImages = post.images.filter((image) => !keepImageIds.includes(image.publicId));
     await destroyImages(removedImages);
@@ -219,6 +234,9 @@ export const deletePost = async (req, res) => {
     }
     await destroyImages(post.images);
     await CommunityPost.findByIdAndDelete(post._id);
+    if (String(post.author) !== String(req.userid)) {
+      await penalizeRemovedContent(post.author, req.userid, "Community post removed by an administrator", { postId: post._id });
+    }
     res.status(200).json({ message: "Post deleted" });
   } catch (error) {
     console.log(error);
@@ -253,6 +271,8 @@ export const addComment = async (req, res) => {
     if (!body.trim()) return res.status(400).json({ message: "Comment body is required" });
     const post = await CommunityPost.findOne({ _id: req.params.id, status: "active" });
     if (!post) return res.status(404).json({ message: "Post not found" });
+    const privilegeError = await commentPrivilegeError(req.userid, [post.author]);
+    if (privilegeError) return res.status(403).json({ message: privilegeError });
     const mentionedUsers = await findMentionedUsers(body);
     post.comments.push({ user: req.userid, body: body.trim() });
     post.engagementScore += 3;
@@ -274,6 +294,8 @@ export const addReply = async (req, res) => {
     if (!post) return res.status(404).json({ message: "Post not found" });
     const comment = post.comments.id(req.params.commentId);
     if (!comment) return res.status(404).json({ message: "Comment not found" });
+    const privilegeError = await commentPrivilegeError(req.userid, [post.author, comment.user]);
+    if (privilegeError) return res.status(403).json({ message: privilegeError });
     const mentionedUsers = await findMentionedUsers(body);
     comment.replies.push({ user: req.userid, body: body.trim() });
     post.engagementScore += 3;

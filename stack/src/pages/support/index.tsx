@@ -2,6 +2,7 @@ import Head from "next/head";
 import Mainlayout from "@/layout/Mainlayout";
 import { useAuth } from "@/lib/AuthContext";
 import axiosInstance from "@/lib/axiosinstance";
+import { useI18n } from "@/lib/i18n";
 import { useEffect, useState } from "react";
 import { toast } from "react-toastify";
 import Link from "next/link";
@@ -10,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 
 export default function SupportPage() {
   const { user, authReady } = useAuth();
+  const { t, formatDate } = useI18n();
   const [subject, setSubject] = useState("");
   const [message, setMessage] = useState("");
   const [tickets, setTickets] = useState<any[]>([]);
@@ -32,14 +34,14 @@ useEffect(() => {
         setTickets(ticketRes || []);
       })
       .catch(() => {
-        toast.error("Failed to load support data");
+        toast.error(t("common.error"));
       })
       .finally(() => setLoading(false));
   }, [user, authReady]);
 
   const handleSubmit = async () => {
     if (!subject.trim() || !message.trim()) {
-      toast.error("Please fill in subject and message");
+      toast.error(t("support.fillAll"));
       return;
     }
     setSubmitting(true);
@@ -48,9 +50,9 @@ useEffect(() => {
       setTickets((prev) => [res.data.data, ...prev]);
       setSubject("");
       setMessage("");
-      toast.success("Support ticket submitted");
+      toast.success(t("support.submitted"));
     } catch (error: any) {
-      toast.error(error.response?.data?.message || "Failed to submit ticket");
+      toast.error(error.response?.data?.message || t("common.error"));
     } finally {
       setSubmitting(false);
     }
@@ -60,7 +62,7 @@ useEffect(() => {
     return (
       <Mainlayout>
         <div className="max-w-2xl mx-auto py-16 text-center">
-          <p className="text-gray-600">Loading...</p>
+          <p className="text-gray-600">{t("common.loading")}</p>
         </div>
       </Mainlayout>
     );
@@ -70,9 +72,9 @@ useEffect(() => {
     return (
       <Mainlayout>
         <div className="max-w-2xl mx-auto py-16 text-center">
-          <p className="text-gray-600">Please log in to access support.</p>
+          <p className="text-gray-600">{t("support.loginRequired")}</p>
           <Link href="/auth" className="mt-4 inline-block text-blue-600 hover:underline">
-            Log in
+            {t("nav.login")}
           </Link>
         </div>
       </Mainlayout>
@@ -84,11 +86,11 @@ useEffect(() => {
   return (
     <Mainlayout>
       <Head>
-        <title>Support - StackOverflow</title>
+        <title>{t("nav.support")}</title>
       </Head>
-      <div className="max-w-4xl mx-auto py-8 px-4 sm:px-6">
+      <div className="max-w-4xl mx-auto py-4 sm:py-8 sm:px-6">
         <h1 className="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-2">
-          <Badge className="bg-blue-100 text-blue-700"><ShieldCheck className="w-4 h-4 mr-1" /> Priority Support</Badge>
+          <Badge className="bg-blue-100 text-blue-700"><ShieldCheck className="w-4 h-4 mr-1" /> {t("nav.support")}</Badge>
         </h1>
 
         {!loading && (
@@ -101,29 +103,29 @@ useEffect(() => {
               ) : (
                 <UserPlus className="w-4 h-4" />
               )}
-              <span>{info?.message}</span>
+              <span>{t(`support.info.${info?.priority || "standard"}` as any)}</span>
             </div>
             {user.plan === "free" || user.plan === "bronze" ? (
               <Link href="/subscription" className="mt-3 inline-block text-blue-600 hover:underline font-medium">
-                Upgrade to Silver/Gold for priority support →
+                {t("support.upgrade")} →
               </Link>
             ) : null}
           </div>
         )}
 
         <div className="bg-white rounded-lg border border-gray-200 p-6 mb-8">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Submit a support request</h2>
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">{t("support.submitTitle")}</h2>
           <div className="space-y-4">
             <input
               value={subject}
               onChange={(e) => setSubject(e.target.value)}
-              placeholder="Subject"
+              placeholder={t("support.subject")}
               className="w-full rounded border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
             />
             <textarea
               value={message}
               onChange={(e) => setMessage(e.target.value)}
-              placeholder="Describe your issue..."
+              placeholder={t("support.describe")}
               rows={4}
               className="w-full rounded border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 resize-none"
             />
@@ -132,15 +134,15 @@ useEffect(() => {
               disabled={submitting}
               className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
             >
-              {submitting ? "Submitting..." : "Submit Ticket"}
+              {submitting ? t("common.sending") : t("support.submit")}
             </button>
           </div>
         </div>
 
         <div>
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Your tickets</h2>
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">{t("support.yourTickets")}</h2>
           {tickets.length === 0 ? (
-            <p className="text-gray-500 text-sm">No support tickets yet.</p>
+            <p className="text-gray-500 text-sm">{t("support.none")}</p>
           ) : (
             <ul className="divide-y divide-gray-200 border border-gray-200 rounded-lg bg-white">
               {tickets.map((ticket) => (
@@ -149,7 +151,7 @@ useEffect(() => {
                     <div className="min-w-0">
                       <p className="font-medium text-gray-900 truncate">{ticket.subject}</p>
                       <p className="text-xs text-gray-500 mt-1">
-                        {new Date(ticket.createdAt).toLocaleDateString()} · priority: {ticket.priority}
+                        {formatDate(ticket.createdAt)} · {t("support.priority")}: {t(`support.priorityLevel.${ticket.priority}` as any)}
                       </p>
                     </div>
                     <span className={`ml-3 inline-block rounded-full px-2 py-0.5 text-xs font-medium ${ticket.status === "resolved" || ticket.status === "closed"
@@ -158,7 +160,7 @@ useEffect(() => {
                         ? "bg-amber-100 text-amber-700"
                         : "bg-gray-100 text-gray-600"
                       }`}>
-                      {ticket.status}
+                      {t(`support.status.${ticket.status}` as any)}
                     </span>
                   </div>
                 </li>

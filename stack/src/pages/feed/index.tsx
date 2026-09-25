@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import Mainlayout from "@/layout/Mainlayout";
 import { useAuth } from "@/lib/AuthContext";
 import axiosInstance from "@/lib/axiosinstance";
+import { useI18n } from "@/lib/i18n";
 import { Flame, Hash, Users } from "lucide-react";
 import Head from "next/head";
 import Link from "next/link";
@@ -11,15 +12,12 @@ import { useRouter } from "next/router";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "react-toastify";
 
-const tabs = [
-  { value: "latest", label: "Latest" },
-  { value: "trending", label: "Trending" },
-  { value: "following", label: "Following" },
-];
+const tabs = ["latest", "trending", "following"] as const;
 
 export default function FeedPage() {
   const router = useRouter();
   const { user, authReady } = useAuth();
+  const { t } = useI18n();
   const [posts, setPosts] = useState<any[]>([]);
   const [hashtags, setHashtags] = useState<any[]>([]);
   const [followingIds, setFollowingIds] = useState<Record<string, boolean>>({});
@@ -48,10 +46,10 @@ export default function FeedPage() {
     try {
       if (next) await axiosInstance.post(`/api/community/follow/${userId}`);
       else await axiosInstance.delete(`/api/community/follow/${userId}`);
-      toast.success(next ? `Following ${authorName || "user"}` : `Unfollowed ${authorName || "user"}`);
+      toast.success(next ? t("feed.followingName", { name: authorName }) : t("feed.unfollowed", { name: authorName }));
     } catch (error: any) {
       setFollowingIds((prev) => ({ ...prev, [userId]: !next }));
-      toast.error(error.response?.data?.message || "Could not update follow");
+      toast.error(error.response?.data?.message || t("common.error"));
     }
   };
 
@@ -65,8 +63,8 @@ export default function FeedPage() {
       setPage(targetPage);
       setHasMore(res.data.hasMore);
     } catch (error: any) {
-      if (error.response?.status === 401) toast.error("Login to view your following feed");
-      else toast.error("Could not load community feed");
+      if (error.response?.status === 401) toast.error(t("feed.loginForFollowing"));
+      else toast.error(t("common.error"));
     } finally {
       setLoading(false);
     }
@@ -93,23 +91,23 @@ export default function FeedPage() {
 
   return (
     <Mainlayout>
-      <Head><title>Community Feed - StackOverflow</title></Head>
-      <div className="mx-auto grid max-w-6xl gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
+      <Head><title>{t("feed.title")}</title></Head>
+      <div className="mx-auto grid max-w-6xl gap-6 lg:grid-cols-[minmax(0,1fr)_260px]">
         <main className="space-y-5">
-          <div className="rounded-3xl bg-gradient-to-br from-orange-600 to-slate-950 p-6 text-white shadow-lg">
-            <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-widest text-orange-100"><Flame className="h-4 w-4" /> Community Feed</div>
-            <h1 className="mt-2 text-3xl font-black">Share what you are building and learning</h1>
-            <p className="mt-2 max-w-2xl text-sm text-orange-50">Post updates, images, code snippets, project showcases, and achievements. Follow members to personalize the feed.</p>
+          <div className="rounded-3xl bg-gradient-to-br from-orange-600 to-slate-950 p-4 sm:p-6 text-white shadow-lg">
+            <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-widest text-orange-100"><Flame className="h-4 w-4" /> {t("feed.title")}</div>
+            <h1 className="mt-2 text-2xl sm:text-3xl font-black">{t("feed.heroTitle")}</h1>
+            <p className="mt-2 max-w-2xl text-sm text-orange-50">{t("feed.heroText")}</p>
           </div>
           {!authReady ? (
-            <div className="rounded-2xl border bg-white p-4 text-sm">Loading your session...</div>
+            <div className="rounded-2xl border bg-white p-4 text-sm">{t("common.loading")}</div>
           ) : user ? <PostComposer onCreated={(post) => setPosts((prev) => [post, ...prev])} /> : (
-            <div className="rounded-2xl border bg-white p-4 text-sm"><Link href="/auth" className="font-semibold text-orange-700">Log in</Link> to post, follow, like, comment, and bookmark.</div>
+            <div className="rounded-2xl border bg-white p-4 text-sm"><Link href="/auth" className="font-semibold text-orange-700">{t("nav.login")}</Link> {t("feed.loginToPost")}</div>
           )}
           <div className="flex flex-wrap gap-2">
             {tabs.map((item) => (
-              <Button key={item.value} type="button" variant="outline" onClick={() => setTab(item.value)} className={tab === item.value ? "border-orange-400 bg-white font-semibold text-orange-700 shadow-sm" : ""}>
-                {item.value === "following" && <Users className="h-4 w-4" />} {item.label}
+              <Button key={item} type="button" variant="outline" onClick={() => setTab(item)} className={tab === item ? "border-orange-400 bg-white font-semibold text-orange-700 shadow-sm" : ""}>
+                {item === "following" && <Users className="h-4 w-4" />} {t(`feed.tab.${item}`)}
               </Button>
             ))}
             {hashtag && <Button type="button" variant="outline" onClick={() => router.push({ pathname: "/feed", query: { tab } })}>#{hashtag} ×</Button>}
@@ -124,21 +122,21 @@ export default function FeedPage() {
                 onChange={(updated) => setPosts((prev) => updated ? prev.map((item) => item._id === updated._id ? updated : item) : prev.filter((item) => item._id !== post._id))}
               />
             ))}
-            {!loading && posts.length === 0 && <div className="rounded-2xl border bg-white p-8 text-center text-slate-500">No posts yet. Start the conversation.</div>}
-            {loading && <div className="rounded-2xl border bg-white p-6 text-center text-slate-500">Loading posts...</div>}
+            {!loading && posts.length === 0 && <div className="rounded-2xl border bg-white p-8 text-center text-slate-500">{t("feed.empty")}</div>}
+            {loading && <div className="rounded-2xl border bg-white p-6 text-center text-slate-500">{t("common.loading")}</div>}
             <div ref={sentinel} className="h-4" />
           </div>
         </main>
         <aside className="space-y-4">
           <div className="rounded-2xl border bg-white p-4 shadow-sm">
-            <h2 className="mb-3 flex items-center gap-2 font-bold"><Hash className="h-4 w-4 text-blue-600" /> Trending Hashtags</h2>
+            <h2 className="mb-3 flex items-center gap-2 font-bold"><Hash className="h-4 w-4 text-blue-600" /> {t("feed.trendingHashtags")}</h2>
             <div className="flex flex-wrap gap-2">
               {hashtags.map((item) => (
                 <Link key={item.tag} href={`/feed?hashtag=${encodeURIComponent(item.tag)}&tab=${tab}`} className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-100">#{item.tag} ({item.count})</Link>
               ))}
             </div>
           </div>
-          {user?.role === "admin" && <Link href="/admin/moderation" className="block rounded-2xl border border-red-100 bg-red-50 p-4 text-sm font-semibold text-red-700">Open moderation queue</Link>}
+          {user?.role === "admin" && <Link href="/admin/moderation" className="block rounded-2xl border border-red-100 bg-red-50 p-4 text-sm font-semibold text-red-700">{t("feed.openModeration")}</Link>}
         </aside>
       </div>
     </Mainlayout>
