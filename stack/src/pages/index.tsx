@@ -7,6 +7,7 @@ import { useRouter } from "next/router";
 import { useCallback, useEffect, useState } from "react";
 import PlanBadge from "@/components/PlanBadge";
 import { useAuth } from "@/lib/AuthContext";
+import { useI18n } from "@/lib/i18n";
 
 type SortMode = "newest" | "active" | "score" | "views" | "answered" | "bountied" | "unanswered";
 
@@ -44,6 +45,7 @@ const getQuestionScore = (item: Question) =>
 
 export default function Home() {
   const { user, authReady } = useAuth();
+  const { t, formatDate } = useI18n();
   const [question, setquestion] = useState<Question[]>([]);
   const [loading, setloading] = useState(true);
   const [sortMode, setSortMode] = useState<SortMode>("newest");
@@ -87,7 +89,7 @@ export default function Home() {
           }
         } catch (error: any) {
           if (error.response?.status === 403) {
-            setError(error.response?.data?.message || "Advanced filters require a Bronze plan or higher.");
+            setError(error.response?.data?.message || t("home.advancedRequiresBronze"));
           } else {
             console.log(error);
           }
@@ -133,7 +135,7 @@ export default function Home() {
 
   const applySearch = () => {
     if (tagText.trim() && !isBronzePlus) {
-      setError("Tag filtering requires a Bronze plan or higher.");
+      setError(t("home.tagRequiresBronze"));
       return;
     }
     fetchQuestions(buildParams());
@@ -141,11 +143,7 @@ export default function Home() {
 
   const handleSort = (mode: SortMode) => {
     if (mode !== "newest" && !isBronzePlus) {
-      setError(
-        mode === "unanswered"
-          ? "Advanced filters (unanswered) require a Bronze plan or higher."
-          : "Advanced sorting requires a Bronze plan or higher."
-      );
+      setError(mode === "unanswered" ? t("home.unansweredRequiresBronze") : t("home.sortRequiresBronze"));
       router.push("/subscription");
       return;
     }
@@ -155,7 +153,7 @@ export default function Home() {
 
   const handleTagClick = (tag: string) => {
     if (!isBronzePlus) {
-      setError("Tag filtering requires a Bronze plan or higher.");
+      setError(t("home.tagRequiresBronze"));
       router.push("/subscription");
       return;
     }
@@ -188,54 +186,54 @@ export default function Home() {
 
   return (
     <Mainlayout>
-      <main className="min-w-0 p-4 lg:p-6 ">
+      <main className="min-w-0 p-1 sm:p-4 lg:p-6">
         <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center mb-6 gap-4">
-          <h1 className="text-xl lg:text-2xl font-semibold">Top Questions</h1>
+          <h1 className="text-xl lg:text-2xl font-semibold">{t("home.title")}</h1>
           <button
             onClick={() => router.push("/ask")}
             className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-medium whitespace-nowrap"
           >
-            Ask Question
+            {t("home.ask")}
           </button>
         </div>
         <div className="w-full">
           <div className="flex flex-col lg:flex-row items-start lg:items-center mb-4 text-sm gap-3 lg:gap-4">
             <span className="text-gray-600 whitespace-nowrap">
-              {total} {total === 1 ? "question" : "questions"}
+              {t(total === 1 ? "home.questionCountOne" : "home.questionCount", { count: total })}
             </span>
             <div className="flex w-full flex-wrap gap-1 sm:gap-2">
               <button onClick={() => handleSort("newest")} className={buttonClass("newest")}>
-                Newest
+                {t("home.sort.newest")}
               </button>
               <button onClick={() => handleSort("active")} className={buttonClass("active")}>
-                Active
+                {t("home.sort.active")}
               </button>
               <button
                 onClick={() => handleSort("bountied")}
                 className={`${buttonClass("bountied")} flex items-center`}
               >
-                Bountied
+                {t("home.sort.bountied")}
                 <Badge variant="secondary" className="ml-1 text-xs">
                   {bountiedCount}
                 </Badge>
               </button>
               <button onClick={() => handleSort("unanswered")} className={buttonClass("unanswered")}>
-                Unanswered
+                {t("home.sort.unanswered")}
               </button>
               <button onClick={() => handleSort("score")} className={buttonClass("score")}>
-                Score
+                {t("home.sort.score")}
               </button>
               <button onClick={() => handleSort("views")} className={buttonClass("views")}>
-                Views
+                {t("home.sort.views")}
               </button>
               <button onClick={() => handleSort("answered")} className={buttonClass("answered")}>
-                Most Answered
+                {t("home.sort.answered")}
               </button>
               <button
                 onClick={() => setShowFilters((current) => !current)}
                 className="px-2 sm:px-3 py-1 border border-gray-300 text-gray-600 hover:bg-gray-50 rounded sm:ml-auto text-xs sm:text-sm"
               >
-                🔍 Filter
+                🔍 {t("home.filter")}
               </button>
             </div>
           </div>
@@ -245,27 +243,27 @@ export default function Home() {
                 value={searchText}
                 onChange={(event) => setSearchText(event.target.value)}
                 onKeyDown={(event) => event.key === "Enter" && applySearch()}
-                placeholder="Search title or body"
+                placeholder={t("home.searchPlaceholder")}
                 className="rounded border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
               />
               <input
                 value={tagText}
                 onChange={(event) => setTagText(event.target.value)}
                 disabled={!isBronzePlus}
-                placeholder={isBronzePlus ? "Filter by tag" : "Filter by tag (Bronze+)"}
+                placeholder={isBronzePlus ? t("home.tagPlaceholder") : t("home.tagPlaceholderLocked")}
                 className="rounded border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-400"
               />
               <button
                 onClick={applySearch}
                 className="rounded bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-700"
               >
-                Apply
+                {t("common.apply")}
               </button>
               <button
                 onClick={clearFilters}
                 className="rounded border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-white"
               >
-                Clear
+                {t("common.clear")}
               </button>
             </div>
           )}
@@ -276,11 +274,11 @@ export default function Home() {
           )}
           {!isBronzePlus && (
             <div className="mb-4 rounded border border-gray-200 bg-gray-50 p-3 text-xs text-gray-600">
-              Basic search is available on the Free plan.{" "}
+              {t("home.basicSearchNote")}{" "}
               <Link href="/subscription" className="text-blue-600 hover:underline">
-                Upgrade to Bronze+
+                {t("home.upgradeBronze")}
               </Link>{" "}
-              for advanced search filters (tag, unanswered, score, views, most answered).
+              {t("home.advancedFiltersList")}
             </div>
           )}
           <div className="space-y-4">
@@ -290,7 +288,7 @@ export default function Home() {
               </div>
             ) : question.length === 0 ? (
               <div className="rounded border border-dashed border-gray-300 p-6 text-center text-sm text-gray-500">
-                No questions match the selected filters.
+                {t("home.noResults")}
               </div>
             ) : (
               question.map((question) => (
@@ -299,7 +297,7 @@ export default function Home() {
                     <div className="grid grid-cols-3 sm:flex sm:flex-col items-center text-sm text-gray-600 sm:w-16 lg:w-20 gap-3 sm:gap-2">
                       <div className="text-center">
                         <div className="font-medium">{getQuestionScore(question)}</div>
-                        <div className="text-xs">votes</div>
+                        <div className="text-xs">{t("home.votes")}</div>
                       </div>
                       <div className="text-center">
                         <div
@@ -310,17 +308,17 @@ export default function Home() {
                         >
                           {question.noofanswer}
                         </div>
-                        <div className="text-xs">{question.noofanswer === 1 ? "answer" : "answers"}</div>
+                        <div className="text-xs">{t(question.noofanswer === 1 ? "home.answer" : "home.answers")}</div>
                       </div>
                       <div className="text-center">
                         <div className="font-medium">{question.views || 0}</div>
-                        <div className="text-xs">views</div>
+                        <div className="text-xs">{t("home.viewsLabel")}</div>
                       </div>
                     </div>
                     <div className="flex-1 min-w-0">
                       {question.bounty?.status === "active" && (
                         <Badge className="mb-2 bg-amber-100 text-amber-800 hover:bg-amber-100">
-                          +{question.bounty.amount} bounty
+                          {t("home.bountyBadge", { amount: question.bounty.amount })}
                         </Badge>
                       )}
                       <Link
@@ -329,7 +327,7 @@ export default function Home() {
                       >
                         {question.questiontitle}
                       </Link>
-                      <p className="text-gray-700 text-sm mb-3 line-clamp-2">{question.questionbody}</p>
+                      <p className="text-gray-700 text-sm mb-3 line-clamp-2 break-words">{question.questionbody}</p>
 
                       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
                         <div className="flex flex-wrap gap-1">
@@ -356,7 +354,7 @@ export default function Home() {
                             </span>
                           </Link>
 
-                          <span>asked {new Date(question.askedon).toLocaleDateString()}</span>
+                          <span>{t("q.asked")} {formatDate(question.askedon)}</span>
                         </div>
                       </div>
                     </div>
@@ -372,7 +370,7 @@ export default function Home() {
                 disabled={loadingMore}
                 className="px-4 py-2 border border-gray-300 text-gray-700 hover:bg-gray-50 rounded text-sm disabled:opacity-50"
               >
-                {loadingMore ? "Loading..." : "Load More"}
+                {loadingMore ? t("common.loading") : t("common.loadMore")}
               </button>
             </div>
           )}

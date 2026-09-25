@@ -4,6 +4,7 @@ import Follow from "../models/Follow.js";
 import Report from "../models/Report.js";
 import User from "../models/auth.js";
 import { notify } from "../services/notificationService.js";
+import { PRIVILEGES, userHasPrivilege } from "../services/reputationService.js";
 
 const getPagination = (query) => {
   const page = Math.max(1, parseInt(query.page, 10) || 1);
@@ -93,8 +94,12 @@ export const reportPost = async (req, res) => {
   try {
     const { reason, details = "" } = req.body;
     if (!reason?.trim()) return res.status(400).json({ message: "Report reason is required" });
+    if (!(await userHasPrivilege(req.userid, "report"))) {
+      return res.status(403).json({ message: `You need ${PRIVILEGES.report.threshold} reputation to report content.` });
+    }
     const post = await CommunityPost.findOne({ _id: req.params.id, status: "active" });
     if (!post) return res.status(404).json({ message: "Post not found" });
+    if (String(post.author) === String(req.userid)) return res.status(400).json({ message: "You cannot report your own post" });
     const existing = await Report.findOne({ postId: post._id, reporterId: req.userid });
     if (existing) return res.status(409).json({ message: "You already reported this post" });
     await Report.create({ postId: post._id, reporterId: req.userid, reason: reason.trim(), details: details.trim() });

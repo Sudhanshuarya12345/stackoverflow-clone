@@ -1,4 +1,5 @@
 import React from "react";
+import { useI18n } from "@/lib/i18n";
 import { Badge } from "./ui/badge";
 
 interface PlanBadgeProps {
@@ -6,6 +7,7 @@ interface PlanBadgeProps {
 }
 
 const PlanBadge = ({ plan }: PlanBadgeProps) => {
+    const { t } = useI18n();
     if (!plan || plan === "free") return null;
 
     const planColors: Record<string, string> = {
@@ -16,7 +18,7 @@ const PlanBadge = ({ plan }: PlanBadgeProps) => {
 
     return (
         <Badge className={`${planColors[plan]} border-none ml-2 uppercase text-xs tracking-wider shadow-sm font-semibold px-2 py-0.5`}>
-            {plan}
+            {t(`plan.${plan}` as any)}
         </Badge>
     );
 };

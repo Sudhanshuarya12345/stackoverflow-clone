@@ -2,6 +2,7 @@ import Head from "next/head";
 import Mainlayout from "@/layout/Mainlayout";
 import { useAuth } from "@/lib/AuthContext";
 import axiosInstance from "@/lib/axiosinstance";
+import { useI18n } from "@/lib/i18n";
 import { useEffect, useState } from "react";
 import { toast } from "react-toastify";
 import Link from "next/link";
@@ -10,6 +11,7 @@ import PlanBadge from "@/components/PlanBadge";
 
 export default function SubscriptionDashboard() {
     const { user, updateLocalUser, authReady } = useAuth();
+    const { t, formatDate } = useI18n();
     const [subData, setSubData] = useState<any>(null);
     const [invoices, setInvoices] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
@@ -40,7 +42,7 @@ export default function SubscriptionDashboard() {
                 updateLocalUser({ plan: subRes.data.userPlanDetails.plan });
             }
         } catch (error) {
-            toast.error("Failed to load subscription details");
+            toast.error(t("common.error"));
             console.error(error);
         } finally {
             setLoading(false);
@@ -52,22 +54,22 @@ export default function SubscriptionDashboard() {
         try {
             const res = await axiosInstance.put("/api/subscriptions/billing", { billingDetails: billing });
             setBilling(res.data.billingDetails || billing);
-            toast.success("Billing details saved");
+            toast.success(t("billing.saved"));
         } catch (error) {
-            toast.error("Failed to save billing details");
+            toast.error(t("common.error"));
         } finally {
             setSavingBilling(false);
         }
     };
 
     const handleCancel = async () => {
-        if (!window.confirm("Cancel subscription? Your premium access will continue until the paid period ends.")) return;
+        if (!window.confirm(t("billing.confirmCancel"))) return;
         try {
             await axiosInstance.post("/api/subscriptions/cancel");
-            toast.success("Subscription cancellation scheduled for period end.");
+            toast.success(t("billing.cancelScheduled"));
             fetchDashboardData();
         } catch (error: any) {
-            toast.error(error.response?.data?.message || "Failed to cancel subscription");
+            toast.error(error.response?.data?.message || t("common.error"));
         }
     };
 
@@ -84,14 +86,14 @@ export default function SubscriptionDashboard() {
             link.click();
             link.parentNode?.removeChild(link);
         } catch (error) {
-            toast.error("Failed to download invoice");
+            toast.error(t("common.error"));
         }
     };
 
     if (!authReady) {
         return (
             <Mainlayout>
-                <div className="flex justify-center p-12"><p>Loading...</p></div>
+                <div className="flex justify-center p-12"><p>{t("common.loading")}</p></div>
             </Mainlayout>
         );
     }
@@ -99,7 +101,7 @@ export default function SubscriptionDashboard() {
     if (!user) {
         return (
             <Mainlayout>
-                <div className="flex justify-center p-12"><p>Please log in to view this page.</p></div>
+                <div className="flex justify-center p-12"><p>{t("common.loginRequired")}</p></div>
             </Mainlayout>
         );
     }
@@ -109,14 +111,14 @@ export default function SubscriptionDashboard() {
     return (
         <Mainlayout>
             <Head>
-                <title>Billing Dashboard - StackOverflow</title>
+                <title>{t("billing.title")}</title>
             </Head>
 
-            <div className="max-w-5xl mx-auto py-8 px-4 sm:px-6">
+            <div className="max-w-5xl mx-auto py-4 sm:py-8 sm:px-6">
                 <div className="md:flex md:items-center md:justify-between mb-8">
                     <div className="flex-1 min-w-0">
                         <h2 className="text-2xl font-bold leading-7 text-gray-900 sm:text-3xl sm:truncate flex items-center">
-                            Billing & Subscriptions
+                            {t("billing.title")}
                             <PlanBadge plan={user?.plan} />
                         </h2>
                     </div>
@@ -125,7 +127,7 @@ export default function SubscriptionDashboard() {
                             href="/subscription"
                             className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-orange-600 hover:bg-orange-700"
                         >
-                            {isPremium ? "Manage Plan" : "Upgrade Plan"}
+                            {isPremium ? t("billing.managePlan") : t("billing.upgradePlan")}
                         </Link>
                     </div>
                 </div>
@@ -138,55 +140,55 @@ export default function SubscriptionDashboard() {
                         {/* Current Plan Overview Card */}
                         <div className="bg-white shadow overflow-hidden sm:rounded-lg border border-gray-200">
                             <div className="px-4 py-5 sm:px-6 bg-gray-50 flex justify-between items-center">
-                                <h3 className="text-lg leading-6 font-medium text-gray-900">Current Plan Overview</h3>
+                                <h3 className="text-lg leading-6 font-medium text-gray-900">{t("billing.overview")}</h3>
                                 {subData?.status === 'active' && (
                                     <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                                        <CheckCircle className="w-4 h-4 mr-1" /> Active
+                                        <CheckCircle className="w-4 h-4 mr-1" /> {t("billing.status.active")}
                                     </span>
                                 )}
                                 {subData?.status === 'cancellation_pending' && (
                                     <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                                        <AlertCircle className="w-4 h-4 mr-1" /> Cancels at period end
+                                        <AlertCircle className="w-4 h-4 mr-1" /> {t("billing.status.cancellation_pending")}
                                     </span>
                                 )}
                                 {['cancelled', 'expired', 'halted', 'completed'].includes(subData?.status) && (
                                     <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
-                                        <AlertCircle className="w-4 h-4 mr-1" /> {subData?.status}
+                                        <AlertCircle className="w-4 h-4 mr-1" /> {t(`billing.status.${subData?.status}` as any)}
                                     </span>
                                 )}
                             </div>
                             <div className="border-t border-gray-200 px-4 py-5 sm:p-0">
                                 <dl className="sm:divide-y sm:divide-gray-200">
                                     <div className="py-4 sm:py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
-                                        <dt className="text-sm font-medium text-gray-500 flex items-center"><Star className="w-4 h-4 mr-2" /> Plan Tier</dt>
-                                        <dd className="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2 uppercase font-bold">{user.plan}</dd>
+                                        <dt className="text-sm font-medium text-gray-500 flex items-center"><Star className="w-4 h-4 mr-2" /> {t("billing.planTier")}</dt>
+                                        <dd className="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2 uppercase font-bold">{t(`plan.${user.plan || "free"}` as any)}</dd>
                                     </div>
                                     {isPremium && subData && (
                                         <>
                                             <div className="py-4 sm:py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
-                                                <dt className="text-sm font-medium text-gray-500 flex items-center"><Calendar className="w-4 h-4 mr-2" /> Started On</dt>
+                                                <dt className="text-sm font-medium text-gray-500 flex items-center"><Calendar className="w-4 h-4 mr-2" /> {t("billing.startedOn")}</dt>
                                                 <dd className="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">
-                                                    {new Date(subData.current_period_start || subData.createdAt).toLocaleDateString()}
+                                                    {formatDate(subData.current_period_start || subData.createdAt)}
                                                 </dd>
                                             </div>
                                             <div className="py-4 sm:py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
-                                                <dt className="text-sm font-medium text-gray-500 flex items-center"><Clock className="w-4 h-4 mr-2" /> Renews / Expires On</dt>
+                                                <dt className="text-sm font-medium text-gray-500 flex items-center"><Clock className="w-4 h-4 mr-2" /> {subData.status === "cancellation_pending" ? t("billing.expiresOn") : t("billing.renewsOn")}</dt>
                                                 <dd className="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">
-                                                    {subData.current_period_end ? new Date(subData.current_period_end).toLocaleDateString() : 'N/A'}
+                                                    {subData.current_period_end ? formatDate(subData.current_period_end) : '—'}
                                                 </dd>
                                             </div>
                                             <div className="py-4 sm:py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
-                                                <dt className="text-sm font-medium text-gray-500 flex items-center"><CreditCard className="w-4 h-4 mr-2" /> Subscription ID</dt>
+                                                <dt className="text-sm font-medium text-gray-500 flex items-center"><CreditCard className="w-4 h-4 mr-2" /> {t("billing.subscriptionId")}</dt>
                                                 <dd className="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2 font-mono text-xs">
                                                     {subData.razorpay_subscription_id}
                                                 </dd>
                                             </div>
                                             {subData.status === 'active' && (
                                                 <div className="py-4 sm:py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
-                                                    <dt className="text-sm font-medium text-gray-500">Cancellation</dt>
+                                                    <dt className="text-sm font-medium text-gray-500">{t("billing.cancellation")}</dt>
                                                     <dd className="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">
                                                         <button onClick={handleCancel} className="text-red-600 hover:text-red-800 font-medium">
-                                                            Cancel at period end
+                                                            {t("billing.cancelAtEnd")}
                                                         </button>
                                                     </dd>
                                                 </div>
@@ -195,7 +197,7 @@ export default function SubscriptionDashboard() {
                                     )}
                                     {!isPremium && (
                                         <div className="py-4 sm:py-5 px-6">
-                                            <p className="text-sm text-gray-500">You are currently on the Free plan. Upgrade to unlock more questions, badges, and search perks.</p>
+                                            <p className="text-sm text-gray-500">{t("billing.freeNote")}</p>
                                         </div>
                                     )}
                                 </dl>
@@ -206,62 +208,62 @@ export default function SubscriptionDashboard() {
                         <div className="bg-white shadow overflow-hidden sm:rounded-lg border border-gray-200">
                             <div className="px-4 py-5 sm:px-6 bg-gray-50 border-b border-gray-200">
                                 <h3 className="text-lg leading-6 font-medium text-gray-900 flex items-center">
-                                    <CreditCard className="w-4 h-4 mr-2" /> Billing Details
+                                    <CreditCard className="w-4 h-4 mr-2" /> {t("billing.details")}
                                 </h3>
                             </div>
                             <div className="px-4 py-5 sm:p-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <input
                                     value={billing.billingName || ""}
                                     onChange={(e) => setBilling({ ...billing, billingName: e.target.value })}
-                                    placeholder="Billing name"
+                                    placeholder={t("billing.name")}
                                     className="rounded border border-gray-300 px-3 py-2 text-sm"
                                 />
                                 <input
                                     value={billing.billingEmail || ""}
                                     onChange={(e) => setBilling({ ...billing, billingEmail: e.target.value })}
-                                    placeholder="Billing email"
+                                    placeholder={t("billing.email")}
                                     className="rounded border border-gray-300 px-3 py-2 text-sm"
                                 />
                                 <input
                                     value={billing.addressLine1 || ""}
                                     onChange={(e) => setBilling({ ...billing, addressLine1: e.target.value })}
-                                    placeholder="Address line 1"
+                                    placeholder={t("billing.address1")}
                                     className="rounded border border-gray-300 px-3 py-2 text-sm"
                                 />
                                 <input
                                     value={billing.addressLine2 || ""}
                                     onChange={(e) => setBilling({ ...billing, addressLine2: e.target.value })}
-                                    placeholder="Address line 2"
+                                    placeholder={t("billing.address2")}
                                     className="rounded border border-gray-300 px-3 py-2 text-sm"
                                 />
                                 <input
                                     value={billing.city || ""}
                                     onChange={(e) => setBilling({ ...billing, city: e.target.value })}
-                                    placeholder="City"
+                                    placeholder={t("billing.city")}
                                     className="rounded border border-gray-300 px-3 py-2 text-sm"
                                 />
                                 <input
                                     value={billing.state || ""}
                                     onChange={(e) => setBilling({ ...billing, state: e.target.value })}
-                                    placeholder="State"
+                                    placeholder={t("billing.state")}
                                     className="rounded border border-gray-300 px-3 py-2 text-sm"
                                 />
                                 <input
                                     value={billing.country || ""}
                                     onChange={(e) => setBilling({ ...billing, country: e.target.value })}
-                                    placeholder="Country"
+                                    placeholder={t("billing.country")}
                                     className="rounded border border-gray-300 px-3 py-2 text-sm"
                                 />
                                 <input
                                     value={billing.postalCode || ""}
                                     onChange={(e) => setBilling({ ...billing, postalCode: e.target.value })}
-                                    placeholder="Postal code"
+                                    placeholder={t("billing.postal")}
                                     className="rounded border border-gray-300 px-3 py-2 text-sm"
                                 />
                                 <input
                                     value={billing.gstNumber || ""}
                                     onChange={(e) => setBilling({ ...billing, gstNumber: e.target.value })}
-                                    placeholder="GST Number (optional)"
+                                    placeholder={t("billing.gst")}
                                     className="rounded border border-gray-300 px-3 py-2 text-sm sm:col-span-2"
                                 />
                                 <div className="sm:col-span-2">
@@ -271,7 +273,7 @@ export default function SubscriptionDashboard() {
                                         className="inline-flex items-center rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
                                     >
                                         <Save className="w-4 h-4 mr-2" />
-                                        {savingBilling ? "Saving..." : "Save billing details"}
+                                        {savingBilling ? t("common.saving") : t("billing.save")}
                                     </button>
                                 </div>
                             </div>
@@ -280,22 +282,22 @@ export default function SubscriptionDashboard() {
                         {/* Invoices List */}
                         <div className="bg-white shadow overflow-hidden sm:rounded-lg border border-gray-200">
                             <div className="px-4 py-5 sm:px-6 bg-gray-50 border-b border-gray-200">
-                                <h3 className="text-lg leading-6 font-medium text-gray-900">Payment History & Invoices</h3>
+                                <h3 className="text-lg leading-6 font-medium text-gray-900">{t("billing.history")}</h3>
                             </div>
 
                             {invoices.length === 0 ? (
-                                <div className="p-8 text-center text-gray-500">No payment history found.</div>
+                                <div className="p-8 text-center text-gray-500">{t("billing.noHistory")}</div>
                             ) : (
                                 <ul className="divide-y divide-gray-200">
                                     {invoices.map((inv) => (
                                         <li key={inv._id} className="px-4 py-4 sm:px-6 hover:bg-gray-50 transition">
-                                            <div className="flex items-center justify-between">
-                                                <div className="flex flex-col">
+                                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                                <div className="flex min-w-0 flex-col">
                                                     <p className="text-sm font-medium text-gray-900 truncate">{inv.invoice_number}</p>
                                                     <p className="text-sm text-gray-500 mt-1 flex items-center">
-                                                        {new Date(inv.createdAt).toLocaleDateString()} · {inv.status} · {inv.payment_method || 'Razorpay'}
+                                                        {formatDate(inv.createdAt)} · {t(`billing.payment.${inv.status}` as any)} · {inv.payment_method || 'Razorpay'}
                                                     </p>
-                                                    <p className="text-xs text-gray-400 font-mono mt-1">{inv.transaction_id || inv.razorpay_payment_id}</p>
+                                                    <p className="break-all text-xs text-gray-400 font-mono mt-1">{inv.plan && `${t(`plan.${inv.plan}` as any)} · `}{inv.transaction_id || inv.razorpay_payment_id}</p>
                                                 </div>
                                                 <div className="flex items-center space-x-4">
                                                     <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">

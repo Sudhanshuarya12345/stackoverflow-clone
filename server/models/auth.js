@@ -15,6 +15,11 @@ const userschema = mongoose.Schema({
   followersCount: { type: Number, default: 0 },
   followingCount: { type: Number, default: 0 },
   reputation: { type: Number, default: 100 },
+  profileBonusAwarded: { type: Boolean, default: false },
+  removedContentCount: { type: Number, default: 0 },
+  repTransferDate: { type: String },
+  repTransferredToday: { type: Number, default: 0 },
+  language: { type: String, enum: ["en", "es", "hi", "pt", "zh", "fr"], default: "en" },
   questionsToday: { type: Number, default: 0 },
   questionResetDate: { type: String },
   forgotPasswordDate: { type: String },
@@ -25,6 +30,7 @@ const userschema = mongoose.Schema({
     type: [
       {
         key: { type: String },
+        name: { type: String },
         tier: { type: String, enum: ["gold", "silver", "bronze"] },
         awardedAt: { type: Date, default: Date.now },
       },

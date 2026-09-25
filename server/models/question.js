@@ -9,6 +9,10 @@ const questionschema = mongoose.Schema(
     views: { type: Number, default: 0 },
     favorites: { type: [String], default: [] },
     acceptedAnswerId: { type: String },
+    upvoteMilestoneAwarded: { type: Boolean, default: false },
+    closeVotes: { type: [String], default: [] },
+    closed: { type: Boolean, default: false },
+    closedAt: { type: Date },
     bounty: {
       amount: { type: Number, default: 0 },
       status: {
@@ -43,6 +47,9 @@ const questionschema = mongoose.Schema(
         userid: String,
         answeredon: { type: Date, default: Date.now },
         isAccepted: { type: Boolean, default: false },
+        upvote: { type: [String], default: [] },
+        downvote: { type: [String], default: [] },
+        upvoteMilestoneAwarded: { type: Boolean, default: false },
         comments: [
           {
             body: String,
@@ -54,7 +61,7 @@ const questionschema = mongoose.Schema(
       },
     ],
   },
-  { timestamp: true }
+  { timestamps: true }
 );
 
 questionschema.index({ questiontitle: "text", questionbody: "text", questiontags: "text" });

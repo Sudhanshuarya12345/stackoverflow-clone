@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import Mainlayout from "@/layout/Mainlayout";
 import { useAuth } from "@/lib/AuthContext";
+import { useI18n } from "@/lib/i18n";
 import axiosInstance from "@/lib/axiosinstance";
 import { Plus, X } from "lucide-react";
 import { useRouter } from "next/router";
@@ -15,6 +16,7 @@ import { toast } from "react-toastify";
 const index = () => {
   const router = useRouter();
   const { user } = useAuth();
+  const { t } = useI18n();
   const [formData, setFormData] = useState({
     title: "",
     body: "",
@@ -38,8 +40,12 @@ const index = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) {
-      toast.error("PLlease login to ask question");
+      toast.error(t("ask.loginRequired"));
       router.push("/auth");
+      return;
+    }
+    if (!formData.title.trim() || formData.body.trim().length < 20 || formData.tags.length === 0) {
+      toast.error(t("ask.validation"));
       return;
     }
     try {
@@ -48,28 +54,26 @@ const index = () => {
           questiontitle: formData.title,
           questionbody: formData.body,
           questiontags: formData.tags,
-          userposted: user.name,
-          userid: user?._id,
         },
       });
       if (res.data.data) {
-        toast.success("Question posted successfully");
+        toast.success(t("ask.posted"));
         router.push("/");
       }
     } catch (error: any) {
       console.log(error);
       if (error.response?.status === 403) {
-        toast.error(error.response.data.message || "Daily question limit reached. Please upgrade to a premium plan.");
+        toast.error(error.response.data.message || t("ask.limitReached"));
         router.push("/subscription");
       } else {
-        toast.error(error.response?.data?.message || "Something went wrong");
+        toast.error(error.response?.data?.message || t("common.error"));
       }
     }
   };
   const handleAddTag = (e: any) => {
     e.preventDefault();
     const trimmedTag = newTag.trim();
-    if (trimmedTag && !formData.tags.includes(trimmedTag)) {
+    if (trimmedTag && !formData.tags.includes(trimmedTag) && formData.tags.length < 5) {
       setFormData({ ...formData, tags: [...formData.tags, trimmedTag] });
       setNewTag("");
     }
@@ -84,63 +88,62 @@ const index = () => {
     <Mainlayout>
       <div className="max-w-6xl mx-auto">
         <h1 className="text-xl lg:text-2xl font-semibold mb-6">
-          Ask a public question
+          {t("ask.title")}
         </h1>
 
         <form onSubmit={handleSubmit}>
           <Card>
             <CardHeader>
               <CardTitle className="text-lg lg:text-xl">
-                Writing a good question
+                {t("ask.cardTitle")}
               </CardTitle>
             </CardHeader>
 
             <CardContent className="space-y-6">
               <div>
                 <Label htmlFor="title" className="text-base font-semibold">
-                  Title
+                  {t("ask.titleLabel")}
                 </Label>
                 <p className="text-sm text-gray-600 mb-2">
-                  Be specific and imagine you're asking a question to another
-                  person.
+                  {t("ask.titleHelp")}
                 </p>
                 <Input
                   id="title"
                   value={formData.title}
                   onChange={handleChange}
-                  placeholder="e.g. How to center a div in CSS?"
+                  placeholder={t("ask.titlePlaceholder")}
                   className="w-full"
                 />
               </div>
 
               <div>
                 <Label htmlFor="body" className="text-base font-semibold">
-                  What are the details of your problem?
+                  {t("ask.bodyLabel")}
                 </Label>
                 <p className="text-sm text-gray-600 mb-2">
-                  Introduce the problem and expand on what you put in the title.
-                  Minimum 20 characters.
+                  {t("ask.bodyHelp")}
                 </p>
                 <Textarea
                   id="body"
                   value={formData.body}
                   onChange={handleChange}
-                  placeholder="Describe your problem in detail..."
+                  placeholder={t("ask.bodyPlaceholder")}
                   className="min-h-32 lg:min-h-48 w-full"
                 />
               </div>
               <div>
                 <Label htmlFor="tags" className="text-base font-semibold">
-                  Tags
+                  {t("ask.tagsLabel")}
                 </Label>
                 <p className="text-sm text-gray-600 mb-2">
-                  Add up to 5 tags to describe what your question is about.
+                  {t("ask.tagsHelp")}
                 </p>
                 <div className="flex gap-2">
                   <Input
                     value={newTag}
                     onChange={(e) => setNewTag(e.target.value)}
-                    placeholder="e.g. javascript react nextjs"
+                    onKeyDown={(e) => e.key === "Enter" && handleAddTag(e)}
+                    placeholder={t("ask.tagsPlaceholder")}
                     className="w-full"
                   />
                   <Button
@@ -164,6 +167,7 @@ const index = () => {
                       >
                         {tag}
                         <button
+                          type="button"
                           onClick={() => handleRemoveTag(tag)}
                           className="ml-1 hover:text-red-600"
                         >
@@ -177,7 +181,7 @@ const index = () => {
 
               <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-4">
                 <Button type="submit" className="bg-blue-600 text-white">
-                  Review your question
+                  {t("ask.submit")}
                 </Button>
               </div>
             </CardContent>

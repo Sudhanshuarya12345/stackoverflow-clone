@@ -13,15 +13,19 @@ import notificationroutes from "./routes/notification.js"
 import adminroutes from "./routes/admin.js"
 import { expireDueSubscriptions } from "./services/subscriptionAccess.js";
 import { expireOldBounties } from "./controller/question.js";
-const app = express();
+import { expireInactiveSessions } from "./services/sessionService.js";
 dotenv.config();
+const app = express();
+// Behind Render/Vercel/NGINX the client IP arrives in X-Forwarded-For.
+app.set("trust proxy", true);
 
 // Webhook mounted BEFORE json body parser with raw expression
 app.use('/api/webhooks', express.raw({type: 'application/json'}), webhookroute);
 
 app.use(express.json({ limit: "30mb", extended: true }));
 app.use(express.urlencoded({ limit: "30mb", extended: true }));
-app.use(cors());
+const allowedOrigins = (process.env.CORS_ORIGINS || "").split(",").map((o) => o.trim()).filter(Boolean);
+app.use(cors(allowedOrigins.length ? { origin: allowedOrigins } : {}));
 app.get("/", (req, res) => {
   res.send("Stackoverflow clone is running perfect");
 });
@@ -37,7 +41,7 @@ const PORT = process.env.PORT || 5000;
 const databaseurl = process.env.MONGODB_URL;
 
 mongoose
-  .connect(databaseurl, { useNewUrlParser: true, useUnifiedTopology: true })
+  .connect(databaseurl)
   .then(() => {
     console.log("✅ Connected to MongoDB");
     app.listen(PORT, () => {
@@ -55,6 +59,9 @@ setInterval(async () => {
         console.error("Bounty expiry job failed:", error);
       }
     }, 60 * 60 * 1000);
+    setInterval(() => {
+      expireInactiveSessions().catch((error) => console.error("Session expiry job failed:", error));
+    }, 5 * 60 * 1000);
   })
   .catch((err) => {
     console.error("❌ MongoDB connection error:", err.message);

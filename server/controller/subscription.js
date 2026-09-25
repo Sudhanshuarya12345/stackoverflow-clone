@@ -29,18 +29,35 @@ export const createSubscription = async (req, res) => {
       userId: req.userid,
       status: { $in: ["created", "authenticated", "active", "pending", "cancellation_pending"] },
     });
-    if (existingSub) {
-      const stalePending = ["created", "authenticated", "pending"].includes(existingSub.status)
+    const rzp = getRazorpayInstance();
+    if (existingSub?.status === "created" && existingSub.razorpay_subscription_id) {
+      // Checkout was opened but not paid (e.g. the popup was closed). Confirm with Razorpay before replacing it.
+      const remote = await rzp.subscriptions.fetch(existingSub.razorpay_subscription_id).catch(() => null);
+      if (remote && remote.status !== "created") {
+        existingSub.status = remote.status;
+        await existingSub.save();
+        await refreshUserPlanFromSubscription(req.userid);
+        return res.status(409).json({ message: "Your previous payment is still being confirmed. Please check your billing dashboard in a minute." });
+      }
+      await rzp.subscriptions.cancel(existingSub.razorpay_subscription_id).catch(() => {});
+      existingSub.status = "expired";
+      await existingSub.save();
+    } else if (existingSub) {
+      const stalePending = ["authenticated", "pending"].includes(existingSub.status)
         && existingSub.createdAt < new Date(Date.now() - 30 * 60 * 1000);
       if (stalePending) {
         existingSub.status = "expired";
         await existingSub.save();
+      } else if (existingSub.status === "cancellation_pending") {
+        const until = existingSub.current_period_end ? new Date(existingSub.current_period_end).toDateString() : "the end of the billing period";
+        return res.status(409).json({ message: `Your ${existingSub.plan} plan is cancelled but stays active until ${until}. You can subscribe again after it ends.` });
+      } else if (existingSub.status === "active") {
+        return res.status(409).json({ message: `You already have an active ${existingSub.plan} subscription. Cancel it from the billing dashboard to change plans.` });
       } else {
-        return res.status(409).json({ message: "You already have an active or pending subscription." });
+        return res.status(409).json({ message: "Your previous payment is still being confirmed. Please check your billing dashboard in a minute." });
       }
     }
 
-    const rzp = getRazorpayInstance();
     const subscription = await rzp.subscriptions.create({
       plan_id: planConfig.razorpayPlanId,
       customer_notify: 0,
