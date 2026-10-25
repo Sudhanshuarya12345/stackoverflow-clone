@@ -56,4 +56,7 @@ const userschema = mongoose.Schema({
     gstNumber: { type: String },
   },
 });
+// Enforced by the database so two simultaneous signups cannot create duplicate accounts.
+userschema.index({ email: 1 }, { unique: true });
+userschema.index({ phone: 1 }, { unique: true, partialFilterExpression: { phone: { $type: "string" } } });
 export default mongoose.model("user", userschema);

@@ -11,6 +11,7 @@ import { formatPhoneForSms, issueOtp, maskEmail, maskPhone, normalizePhone, rese
 import { awardProfileCompletionBonus, getPrivileges, isProfileComplete } from "../services/reputationService.js";
 import Session from "../models/Session.js";
 import Otp from "../models/Otp.js";
+import { todayKey } from "../utils/day.js";
 
 const PUBLIC_USER_FIELDS =
   "name about tags joinDate plan role followersCount followingCount reputation earnedBadges badgeCounters";
@@ -62,10 +63,12 @@ const generateLettersOnlyPassword = (length = 10) => {
   return chars.join("");
 };
 
-const completeLogin = async (res, account, device, { method, remember }) => {
+const completeLogin = async (res, account, device, { method, remember, emailVerified }) => {
   const newDevice = !(await hasSeenDevice(account._id, device.deviceHash));
   const envRole = getRoleForEmail(account.email);
-  if (envRole === "admin" && account.role !== "admin") {
+  // ADMIN_EMAILS is only honoured once the user has proven they own the address (email OTP now, or a device
+  // that was trusted after an OTP). Otherwise anyone could sign up with an admin's email while OTP is off.
+  if (envRole === "admin" && account.role !== "admin" && emailVerified) {
     account.role = "admin";
     await account.save();
   }
@@ -81,8 +84,14 @@ export const Signup = async (req, res) => {
   const { name, password, phone } = req.body;
   const email = String(req.body.email || "").trim().toLowerCase();
   try {
-    if (!name?.trim() || !email || !password) {
+    if (!String(name || "").trim() || !email || !password) {
       return res.status(400).json({ message: "Name, email and password are required" });
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ message: "Enter a valid email address" });
+    }
+    if (String(password).length < 6) {
+      return res.status(400).json({ message: "Password must be at least 6 characters" });
     }
     const exisitinguser = await user.findOne({ email });
     if (exisitinguser) {
@@ -95,7 +104,7 @@ export const Signup = async (req, res) => {
         return res.status(400).json({ message: "Phone number already registered" });
       }
     }
-    const hashpassword = await bcrypt.hash(password, 12);
+    const hashpassword = await bcrypt.hash(String(password), 12);
     // Admin role is only granted after the email address is proven via a login OTP (see completeLogin).
     const newuser = await user.create({
       name: name.trim(),
@@ -107,6 +116,9 @@ export const Signup = async (req, res) => {
     const { token } = await createSession(newuser, device, { method: "signup", newDevice: true });
     res.status(200).json({ data: toSelf(newuser), token });
   } catch (error) {
+    if (error.code === 11000) {
+      return res.status(409).json({ message: error.keyPattern?.phone ? "Phone number already registered" : "User already exist" });
+    }
     console.log(error);
     res.status(500).json({ message: "something went wrong.." });
   }
@@ -119,7 +131,7 @@ export const Login = async (req, res) => {
     if (!exisitinguser) {
       return res.status(404).json({ message: "User does not exist" });
     }
-    const ispasswordcrct = await bcrypt.compare(password || "", exisitinguser.password);
+    const ispasswordcrct = await bcrypt.compare(String(password || ""), exisitinguser.password);
     if (!ispasswordcrct) {
       return res.status(400).json({ message: "Invalid password" });
     }
@@ -129,8 +141,9 @@ export const Login = async (req, res) => {
 
     const device = await getRequestDevice(req);
     const otpDisabled = process.env.LOGIN_OTP_ENABLED === "false";
-    if (otpDisabled || (await isTrustedDevice(exisitinguser._id, device.deviceHash))) {
-      return completeLogin(res, exisitinguser, device, { method: "password", remember: false });
+    const trusted = await isTrustedDevice(exisitinguser._id, device.deviceHash);
+    if (otpDisabled || trusted) {
+      return completeLogin(res, exisitinguser, device, { method: "password", remember: false, emailVerified: trusted });
     }
 
     const otp = await issueOtp(exisitinguser, {
@@ -168,7 +181,7 @@ export const verifyLoginOtp = async (req, res) => {
     const account = await user.findById(otp.user);
     if (!account) return res.status(404).json({ message: "User does not exist" });
     if (account.suspended) return res.status(403).json({ message: account.suspendedReason || "Your account is suspended." });
-    await completeLogin(res, account, device, { method: "password_otp", remember: Boolean(rememberDevice) });
+    await completeLogin(res, account, device, { method: "password_otp", remember: Boolean(rememberDevice), emailVerified: true });
   } catch (error) {
     if (!error.status) console.log(error);
     res.status(error.status || 500).json({ message: error.message || "Could not verify code" });
@@ -288,7 +301,7 @@ export const forgotPassword = async (req, res) => {
       return res.status(404).json({ message: "User does not exist" });
     }
 
-    const todayStr = new Date().toISOString().split("T")[0];
+    const todayStr = todayKey();
     const parsedLimit = parseInt(process.env.FORGOT_PASSWORD_DAILY_LIMIT, 10);
     const dailyLimit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : 1;
 

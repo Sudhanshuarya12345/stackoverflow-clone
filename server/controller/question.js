@@ -1,8 +1,9 @@
 import mongoose from "mongoose";
 import question from "../models/question.js";
 import User from "../models/auth.js";
-import { userMeetsPlan } from "../services/subscriptionAccess.js";
-import { evaluateBadges, awardBadgeIfEarned } from "../services/badgeService.js";
+import { refreshUserPlanFromSubscription, userMeetsPlan } from "../services/subscriptionAccess.js";
+import { PLANS } from "../config/plans.js";
+import { evaluateBadges, awardBadgeIfEarned, incBadgeCounter } from "../services/badgeService.js";
 import {
   CLOSE_VOTES_REQUIRED,
   PRIVILEGES,
@@ -28,12 +29,19 @@ const BOUNTY_EXPIRY_INTERVAL_MS = 10 * 60 * 1000;
 
 export const Askquestion = async (req, res) => {
   const { questiontitle, questionbody, questiontags } = req.body.postquestiondata || {};
+  const releaseSlot = () =>
+    req.userState?.reservedQuestionSlot && User.findByIdAndUpdate(req.userid, { $inc: { questionsToday: -1 } });
+  const tags = Array.isArray(questiontags) ? questiontags.map((t) => String(t).trim()).filter(Boolean) : [];
+  if (!String(questiontitle || "").trim() || !String(questionbody || "").trim() || !tags.length) {
+    await releaseSlot();
+    return res.status(400).json({ message: "Title, body and at least one tag are required" });
+  }
   const author = await User.findById(req.userid).select("name");
   if (!author) return res.status(404).json({ message: "User not found" });
   const postques = new question({
-    questiontitle,
+    questiontitle: String(questiontitle).trim(),
     questionbody,
-    questiontags,
+    questiontags: tags,
     userposted: author.name,
     userid: String(req.userid),
   });
@@ -42,11 +50,9 @@ export const Askquestion = async (req, res) => {
     await evaluateBadges(req.userid, "questions");
     res.status(200).json({ data: postques });
   } catch (error) {
-    if (req.userState?.reservedQuestionSlot) {
-      await User.findByIdAndUpdate(req.userid, { $inc: { questionsToday: -1 } });
-    }
+    await releaseSlot();
     console.log(error);
-    res.status(500).json("something went wrong..");
+    res.status(500).json({ message: "Could not post question" });
     return;
   }
 };
@@ -222,20 +228,30 @@ export const getQuestionById = async (req, res) => {
 
 export const toggleBookmark = async (req, res) => {
   try {
-    if (!(await userMeetsPlan(req.userid, "silver"))) {
-      return res.status(403).json({ message: "Unlimited bookmarks require a Silver plan or higher." });
-    }
-
     const { id } = req.params;
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ message: "question unavailable" });
     }
 
     const existing = await User.findOne({ _id: req.userid, bookmarks: id });
-    const update = existing ? { $pull: { bookmarks: id } } : { $addToSet: { bookmarks: id } };
-    const user = await User.findByIdAndUpdate(req.userid, update, { new: true }).select("bookmarks");
+    if (existing) {
+      const user = await User.findByIdAndUpdate(req.userid, { $pull: { bookmarks: id } }, { new: true }).select("bookmarks");
+      return res.status(200).json({ bookmarked: false, bookmarks: user.bookmarks });
+    }
 
-    res.status(200).json({ bookmarked: !existing, bookmarks: user.bookmarks });
+    // Free and Bronze members get a small bookmark allowance; Silver and Gold are unlimited.
+    const { plan } = await refreshUserPlanFromSubscription(req.userid);
+    const limit = PLANS[plan]?.bookmarkLimit ?? PLANS.free.bookmarkLimit;
+    const filter = { _id: req.userid };
+    if (Number.isFinite(limit)) filter[`bookmarks.${limit - 1}`] = { $exists: false };
+    const user = await User.findOneAndUpdate(filter, { $addToSet: { bookmarks: id } }, { new: true }).select("bookmarks");
+    if (!user) {
+      return res.status(403).json({
+        message: `Your ${plan} plan allows ${limit} bookmarks. Upgrade to Silver or Gold for unlimited bookmarks.`,
+      });
+    }
+
+    res.status(200).json({ bookmarked: true, bookmarks: user.bookmarks });
   } catch (error) {
     console.log(error);
     res.status(500).json({ message: "Could not update bookmark" });
@@ -378,7 +394,10 @@ export const awardBounty = async (req, res) => {
     questionDoc.bounty.awardedToAnswerId = answerId;
     questionDoc.bounty.awardedToUserId = answer.userid;
     questionDoc.bounty.awardedAt = new Date();
-    await applyAcceptance(questionDoc, answerId, req.userid);
+    // Only the question owner decides the accepted answer; a third-party bounty starter just awards the bounty.
+    const isOwner = String(questionDoc.userid) === String(req.userid);
+    if (isOwner && !answer.isAccepted) await applyAcceptance(questionDoc, answerId, req.userid);
+    else await questionDoc.save();
 
     if (mongoose.Types.ObjectId.isValid(answer.userid)) {
       await changeReputation(answer.userid, questionDoc.bounty.amount, {
@@ -538,23 +557,42 @@ export const deletequestion = async (req, res) => {
   }
 };
 
-// Applies an up/down vote toggle to a votable doc (question or answer) and returns the owner reputation effects.
-const applyVote = (doc, voterId, value) => {
+// Atomically toggles one voter's vote on a question (answerId omitted) or on one of its answers.
+// Every write is conditional on the voter's current state, so concurrent votes never overwrite each other
+// and a double click cannot apply the same reputation effect twice.
+const castVote = async (questionId, answerId, voterId, value) => {
   const voter = String(voterId);
-  const wasUp = doc.upvote.includes(voter);
-  const wasDown = doc.downvote.includes(voter);
-  doc.upvote = doc.upvote.filter((v) => v !== voter);
-  doc.downvote = doc.downvote.filter((v) => v !== voter);
-  let isUp = false;
-  let isDown = false;
-  if (value === "upvote" && !wasUp) {
-    doc.upvote.push(voter);
-    isUp = true;
-  } else if (value === "downvote" && !wasDown) {
-    doc.downvote.push(voter);
-    isDown = true;
+  const own = value === "upvote" ? "upvote" : "downvote";
+  const other = own === "upvote" ? "downvote" : "upvote";
+  const filter = (field, condition) =>
+    answerId
+      ? { _id: questionId, answer: { $elemMatch: { _id: answerId, [field]: condition } } }
+      : { _id: questionId, [field]: condition };
+  const path = (field) => (answerId ? `answer.$.${field}` : field);
+  const votesOf = (doc) => (answerId ? doc.answer.id(answerId) : doc);
+
+  let removed = false;
+  let added = false;
+  let removedOther = false;
+  // Clicking the same vote again retracts it.
+  if (await question.findOneAndUpdate(filter(own, voter), { $pull: { [path(own)]: voter } })) {
+    removed = true;
+  } else {
+    const before = await question.findOneAndUpdate(filter(own, { $ne: voter }), {
+      $addToSet: { [path(own)]: voter },
+      $pull: { [path(other)]: voter },
+    });
+    if (!before) return null;
+    added = true;
+    removedOther = (votesOf(before)?.[other] || []).includes(voter);
   }
-  return { newUpvote: isUp && !wasUp, downvoteAdded: isDown && !wasDown, downvoteRemoved: wasDown && !isDown };
+  const isUp = own === "upvote";
+  return {
+    newUpvote: isUp && added,
+    upvoteRemoved: (isUp && removed) || (!isUp && removedOther),
+    downvoteAdded: !isUp && added,
+    downvoteRemoved: (!isUp && removed) || (isUp && removedOther),
+  };
 };
 
 const applyDownvoteReputation = async (effects, ownerId, voterId, what, refs) => {
@@ -583,18 +621,21 @@ export const votequestion = async (req, res) => {
   }
   if (!["upvote", "downvote"].includes(value)) return res.status(400).json({ message: "Invalid vote" });
   try {
-    const questionDoc = await question.findById(_id);
+    const questionDoc = await question.findById(_id).select("userid questiontitle");
     if (!questionDoc) return res.status(404).json({ message: "Question not found" });
     if (String(questionDoc.userid) === String(req.userid)) {
       return res.status(400).json({ message: "You cannot vote on your own question" });
     }
-    const effects = applyVote(questionDoc, req.userid, value);
-    await question.updateOne({ _id }, { upvote: questionDoc.upvote, downvote: questionDoc.downvote });
+    const effects = await castVote(_id, null, req.userid, value);
+    if (!effects) return res.status(404).json({ message: "Question not found" });
 
+    // The badge counter follows live upvotes, so toggling a vote on and off cannot farm badges.
     if (effects.newUpvote) await evaluateBadges(questionDoc.userid, "questionUpvotes");
+    if (effects.upvoteRemoved) await incBadgeCounter(questionDoc.userid, "questionUpvotes", -1);
     await applyDownvoteReputation(effects, questionDoc.userid, req.userid, "question", { questionId: _id });
 
-    if (questionDoc.upvote.length >= REPUTATION_RULES.questionUpvoteMilestoneVotes) {
+    const fresh = await question.findById(_id);
+    if (fresh.upvote.length >= REPUTATION_RULES.questionUpvoteMilestoneVotes) {
       const claimed = await question.findOneAndUpdate(
         { _id, upvoteMilestoneAwarded: { $ne: true } },
         { $set: { upvoteMilestoneAwarded: true } }
@@ -622,23 +663,19 @@ export const voteAnswer = async (req, res) => {
   }
   if (!["upvote", "downvote"].includes(value)) return res.status(400).json({ message: "Invalid vote" });
   try {
-    const questionDoc = await question.findById(id);
+    const questionDoc = await question.findById(id).select("questiontitle answer._id answer.userid");
     const answer = questionDoc?.answer.id(answerId);
     if (!answer) return res.status(404).json({ message: "Answer not found" });
     if (String(answer.userid) === String(req.userid)) {
       return res.status(400).json({ message: "You cannot vote on your own answer" });
     }
-    answer.upvote = answer.upvote || [];
-    answer.downvote = answer.downvote || [];
-    const effects = applyVote(answer, req.userid, value);
-    await question.updateOne(
-      { _id: id, "answer._id": answerId },
-      { $set: { "answer.$.upvote": answer.upvote, "answer.$.downvote": answer.downvote } }
-    );
+    const effects = await castVote(id, answerId, req.userid, value);
+    if (!effects) return res.status(404).json({ message: "Answer not found" });
 
     await applyDownvoteReputation(effects, answer.userid, req.userid, "answer", { questionId: id, answerId });
 
-    if (answer.upvote.length >= REPUTATION_RULES.answerUpvoteMilestoneVotes) {
+    const fresh = (await question.findById(id)).answer.id(answerId);
+    if ((fresh?.upvote?.length || 0) >= REPUTATION_RULES.answerUpvoteMilestoneVotes) {
       const claimed = await question.findOneAndUpdate(
         { _id: id, answer: { $elemMatch: { _id: answerId, upvoteMilestoneAwarded: { $ne: true } } } },
         { $set: { "answer.$.upvoteMilestoneAwarded": true } }

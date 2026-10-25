@@ -20,9 +20,12 @@ export const followUser = async (req, res) => {
     const target = await User.findById(targetId).select("_id");
     if (!target) return res.status(404).json({ message: "User not found" });
 
-    const existing = await Follow.findOne({ follower: req.userid, following: targetId });
-    if (!existing) {
-      await Follow.create({ follower: req.userid, following: targetId });
+    // The unique (follower, following) index makes a double click a no-op instead of double counting.
+    const created = await Follow.create({ follower: req.userid, following: targetId }).catch((error) => {
+      if (error.code === 11000) return null;
+      throw error;
+    });
+    if (created) {
       await Promise.all([
         User.findByIdAndUpdate(req.userid, { $inc: { followingCount: 1 } }),
         User.findByIdAndUpdate(targetId, { $inc: { followersCount: 1 } }),
@@ -92,8 +95,9 @@ export const getFollowing = async (req, res) => {
 
 export const reportPost = async (req, res) => {
   try {
-    const { reason, details = "" } = req.body;
-    if (!reason?.trim()) return res.status(400).json({ message: "Report reason is required" });
+    const reason = String(req.body.reason || "");
+    const details = String(req.body.details || "");
+    if (!reason.trim()) return res.status(400).json({ message: "Report reason is required" });
     if (!(await userHasPrivilege(req.userid, "report"))) {
       return res.status(403).json({ message: `You need ${PRIVILEGES.report.threshold} reputation to report content.` });
     }

@@ -65,13 +65,16 @@ export const reviewReport = async (req, res) => {
 
 export const suspendUser = async (req, res) => {
   try {
-    const { suspended = true, reason = "Community policy violation" } = req.body;
+    const { suspended = true } = req.body;
+    const reason = String(req.body.reason || "Community policy violation").trim().slice(0, 300);
+    const target = await User.findById(req.params.id).select("role");
+    if (!target) return res.status(404).json({ message: "User not found" });
+    if (target.role === "admin") return res.status(400).json({ message: "Administrators cannot be suspended" });
     const user = await User.findByIdAndUpdate(
       req.params.id,
       { suspended: Boolean(suspended), suspendedReason: suspended ? reason : "" },
       { new: true }
     ).select("-password");
-    if (!user) return res.status(404).json({ message: "User not found" });
     if (user.suspended) await revokeUserSessions(user._id, "suspended");
     res.status(200).json({ data: user });
   } catch (error) {

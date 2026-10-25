@@ -1,10 +1,12 @@
 import express from "express";
+import validateObjectId from "../middleware/validateObjectId.js";
 import { getReports, reviewReport, suspendUser } from "../controller/communityModeration.js";
 import adminAuth from "../middleware/adminAuth.js";
 import auth from "../middleware/auth.js";
 import { getLoginActivity } from "../controller/security.js";
 
 const router = express.Router();
+router.param("id", validateObjectId);
 
 router.get("/reports", auth, adminAuth, getReports);
 router.patch("/reports/:id", auth, adminAuth, reviewReport);

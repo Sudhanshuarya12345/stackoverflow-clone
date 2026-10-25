@@ -16,7 +16,11 @@ export const refreshUserPlanFromSubscription = async (userId) => {
   }).sort({ current_period_end: -1 });
 
   if (isPaidSubscriptionUsable(sub, now)) {
-    await User.findByIdAndUpdate(userId, { plan: sub.plan, activeSubscriptionId: sub._id });
+    // Filtered so the user document is only written when the plan actually changed.
+    await User.updateOne(
+      { _id: userId, $or: [{ plan: { $ne: sub.plan } }, { activeSubscriptionId: { $ne: sub._id } }] },
+      { plan: sub.plan, activeSubscriptionId: sub._id }
+    );
     return { plan: sub.plan, subscription: sub };
   }
 
@@ -24,7 +28,10 @@ export const refreshUserPlanFromSubscription = async (userId) => {
     await Subscription.findByIdAndUpdate(sub._id, { status: "expired" });
   }
 
-  await User.findByIdAndUpdate(userId, { plan: "free", $unset: { activeSubscriptionId: "" } });
+  await User.updateOne(
+    { _id: userId, $or: [{ plan: { $ne: "free" } }, { activeSubscriptionId: { $exists: true } }] },
+    { plan: "free", $unset: { activeSubscriptionId: "" } }
+  );
   return { plan: "free", subscription: null };
 };
 

@@ -8,6 +8,7 @@ export const PLANS = {
     amountPaise: 0,
     currency: "INR",
     dailyLimit: 1,
+    bookmarkLimit: 5,
     features: ["basicSearch"],
   },
   bronze: {
@@ -16,6 +17,7 @@ export const PLANS = {
     amountPaise: 9900,
     currency: "INR",
     dailyLimit: 5,
+    bookmarkLimit: 10,
     features: ["badge", "advancedSearch"],
   },
   silver: {
@@ -24,6 +26,7 @@ export const PLANS = {
     amountPaise: 29900,
     currency: "INR",
     dailyLimit: 15,
+    bookmarkLimit: Infinity,
     features: ["badge", "advancedSearch", "prioritySupport", "enhancedProfile", "unlimitedBookmarks"],
   },
   gold: {
@@ -32,6 +35,7 @@ export const PLANS = {
     amountPaise: 99900,
     currency: "INR",
     dailyLimit: Infinity,
+    bookmarkLimit: Infinity,
     features: ["badge", "advancedSearch", "prioritySupport", "featuredProfile", "highestSearchPriority", "exclusiveCommunity"],
   },
 };

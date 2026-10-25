@@ -3,9 +3,7 @@ import Subscription from "../models/Subscription.js";
 import Payment from "../models/Payment.js";
 import User from "../models/auth.js";
 import WebhookEvent from "../models/WebhookEvent.js";
-import { sendSubscriptionEmail } from "../utils/mailer.js";
-import { generateInvoicePdfBuffer } from "../utils/invoicePdf.js";
-import { PLANS } from "../config/plans.js";
+import { recordSubscriptionPayment } from "../services/subscriptionBilling.js";
 
 const verifySignature = (reqBodyBuffer, signature) => {
   if (!signature || !process.env.RAZORPAY_WEBHOOK_SECRET) return false;
@@ -13,36 +11,8 @@ const verifySignature = (reqBodyBuffer, signature) => {
   hmac.update(reqBodyBuffer);
   const generatedSignature = hmac.digest("hex");
   const expected = Buffer.from(generatedSignature, "hex");
-  const received = Buffer.from(signature, "hex");
+  const received = Buffer.from(String(signature), "hex");
   return expected.length === received.length && crypto.timingSafeEqual(expected, received);
-};
-
-const PLAN_FEATURE_TEXT = {
-  bronze: ["5 questions per day", "Bronze profile badge", "Advanced search filters"],
-  silver: ["15 questions per day", "Silver profile badge", "Priority support", "Enhanced profile visibility", "Unlimited bookmarks"],
-  gold: [
-    "Unlimited questions",
-    "Gold profile badge",
-    "Highest search priority",
-    "Featured profile visibility",
-    "Priority customer support",
-    "Exclusive community access",
-  ],
-};
-
-const invoiceNumberForPayment = (paymentId) => {
-  return `INV-${new Date().toISOString().split("T")[0].replace(/-/g, "")}-${paymentId}`.toUpperCase();
-};
-
-const assertPaymentMatchesPlan = (paymentPayload, plan) => {
-  const planConfig = PLANS[plan];
-  if (!planConfig) throw new Error(`Unknown plan ${plan}`);
-  if (paymentPayload.amount !== planConfig.amountPaise) {
-    throw new Error(`Amount mismatch for ${plan}: received ${paymentPayload.amount}, expected ${planConfig.amountPaise}`);
-  }
-  if ((paymentPayload.currency || "").toUpperCase() !== planConfig.currency) {
-    throw new Error(`Currency mismatch for ${plan}: received ${paymentPayload.currency}`);
-  }
 };
 
 const markSubscriptionEndedAtPeriodEnd = async (subPayload, status) => {
@@ -75,10 +45,15 @@ export const handleRazorpayWebhook = async (req, res) => {
       return res.status(400).send("Invalid signature");
     }
 
-    // Now safely parse the JSON
     const event = JSON.parse(req.body.toString("utf8"));
-    const { type, payload } = event;
-    const eventId = event.id || `${type}-${event.created_at || Date.now()}-${payload?.payment?.entity?.id || payload?.subscription?.entity?.id || crypto.randomUUID()}`;
+    // Razorpay sends the event name in `event` and the unique delivery id in the x-razorpay-event-id header.
+    const type = event.event || event.type;
+    const { payload } = event;
+    const eventId =
+      req.headers["x-razorpay-event-id"] ||
+      event.id ||
+      `${type}-${event.created_at || Date.now()}-${payload?.payment?.entity?.id || payload?.subscription?.entity?.id || crypto.randomUUID()}`;
+    if (!type) return res.status(400).send("Missing event type");
 
     try {
       await WebhookEvent.create({ eventId, type });
@@ -90,103 +65,50 @@ export const handleRazorpayWebhook = async (req, res) => {
     }
     eventRecordId = eventId;
 
-    if (type === "subscription.activated") {
+    if (type === "subscription.activated" || type === "subscription.authenticated") {
       const subPayload = payload.subscription.entity;
-
-      const sub = await Subscription.findOneAndUpdate(
-        { razorpay_subscription_id: subPayload.id },
-        { 
+      await Subscription.findOneAndUpdate(
+        { razorpay_subscription_id: subPayload.id, status: { $in: ["created", "pending"] } },
+        {
           status: "authenticated",
           ...(subPayload.current_start ? { current_period_start: new Date(subPayload.current_start * 1000) } : {}),
-          ...(subPayload.current_end ? { current_period_end: new Date(subPayload.current_end * 1000) } : {})
-        },
-        { new: true }
+          ...(subPayload.current_end ? { current_period_end: new Date(subPayload.current_end * 1000) } : {}),
+        }
       );
-    } 
-    else if (type === "subscription.charged") {
+    } else if (type === "subscription.charged") {
       const subPayload = payload.subscription.entity;
       const paymentPayload = payload.payment.entity;
-
-      // Validate the charged amount against our plan price BEFORE granting access.
-      const existingSub = await Subscription.findOne({ razorpay_subscription_id: subPayload.id });
-      if (existingSub) {
+      const sub = await Subscription.findOne({ razorpay_subscription_id: subPayload.id });
+      if (sub) {
         try {
-          assertPaymentMatchesPlan(paymentPayload, existingSub.plan);
-        } catch (mismatch) {
-          console.error("Rejected subscription.charged:", mismatch.message);
+          await recordSubscriptionPayment(sub, paymentPayload, {
+            periodStart: subPayload.current_start ? new Date(subPayload.current_start * 1000) : undefined,
+            periodEnd: subPayload.current_end ? new Date(subPayload.current_end * 1000) : undefined,
+            eventId,
+          });
+        } catch (error) {
+          if (error.code !== "PLAN_MISMATCH") throw error;
+          console.error("Rejected subscription.charged:", error.message);
           return res.status(200).send("Payment does not match plan; not activated");
         }
+      } else {
+        console.log(`subscription.charged for unknown subscription: ${subPayload.id}`);
       }
-      const sub = existingSub && await Subscription.findOneAndUpdate(
-        { _id: existingSub._id },
-        {
-          status: "active",
-          current_period_start: new Date(subPayload.current_start * 1000),
-          current_period_end: new Date(subPayload.current_end * 1000)
-        },
-        { new: true }
-      );
-
-      if (sub) {
-
-        // Upsert Payment (Idempotent)
-        const existingPayment = await Payment.findOne({ razorpay_payment_id: paymentPayload.id });
-        if (!existingPayment) {
-          const invoiceNumber = invoiceNumberForPayment(paymentPayload.id);
-          const newPayment = await Payment.create({
-            userId: sub.userId,
-            subscriptionId: sub._id,
-            razorpay_event_id: eventId,
-            razorpay_payment_id: paymentPayload.id,
-            transaction_id: paymentPayload.id,
-            plan: sub.plan,
-            amount: paymentPayload.amount,
-            currency: paymentPayload.currency,
-            status: "captured",
-            payment_method: paymentPayload.method,
-            billing_period_start: sub.current_period_start,
-            billing_period_end: sub.current_period_end,
-            invoice_number: invoiceNumber,
-          });
-
-          await User.findByIdAndUpdate(sub.userId, { plan: sub.plan, activeSubscriptionId: sub._id });
-
-          // Send confirmation email
-          const user = await User.findById(sub.userId);
-          if (user) {
-            const pdfBuffer = await generateInvoicePdfBuffer(newPayment, user, { name: sub.plan.toUpperCase() });
-            const planConfig = PLANS[sub.plan];
-            const sent = await sendSubscriptionEmail(user.email, sub.plan.toUpperCase(), invoiceNumber, pdfBuffer, {
-              amount: `${planConfig.currency} ${(newPayment.amount / 100).toFixed(2)} / month`,
-              periodEnd: sub.current_period_end ? sub.current_period_end.toDateString() : undefined,
-              features: PLAN_FEATURE_TEXT[sub.plan],
-            });
-            if (sent) {
-              newPayment.invoice_email_sent_at = new Date();
-              await newPayment.save();
-            }
-          }
-        } else {
-          await User.findByIdAndUpdate(sub.userId, { plan: sub.plan, activeSubscriptionId: sub._id });
-        }
-      }
-    }
-    else if (type === "subscription.cancelled" || type === "subscription.halted" || type === "subscription.completed") {
-      const subPayload = payload.subscription.entity;
+    } else if (type === "subscription.cancelled" || type === "subscription.halted" || type === "subscription.completed") {
       const statusMapping = {
         "subscription.cancelled": "cancelled",
         "subscription.halted": "halted",
-        "subscription.completed": "completed"
+        "subscription.completed": "completed",
       };
-      await markSubscriptionEndedAtPeriodEnd(subPayload, statusMapping[type]);
-    }
-    else if (type === "payment.failed") {
+      await markSubscriptionEndedAtPeriodEnd(payload.subscription.entity, statusMapping[type]);
+    } else if (type === "payment.failed") {
       const paymentPayload = payload.payment.entity;
       const subPayload = payload.subscription?.entity;
-      const sub = subPayload ? await Subscription.findOne({ razorpay_subscription_id: subPayload.id }) : null;
+      const subscriptionId = subPayload?.id || paymentPayload.subscription_id;
+      const sub = subscriptionId ? await Subscription.findOne({ razorpay_subscription_id: subscriptionId }) : null;
       if (sub) {
         await Payment.findOneAndUpdate(
-          { razorpay_payment_id: paymentPayload.id },
+          { razorpay_payment_id: paymentPayload.id, status: { $ne: "captured" } },
           {
             userId: sub.userId,
             subscriptionId: sub._id,
@@ -200,7 +122,9 @@ export const handleRazorpayWebhook = async (req, res) => {
             payment_method: paymentPayload.method,
           },
           { upsert: true, new: true }
-        );
+        ).catch((error) => {
+          if (error.code !== 11000) throw error;
+        });
       } else {
         console.log(`Payment failed for unknown subscription: ${paymentPayload.id}`);
       }

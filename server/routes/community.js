@@ -1,4 +1,5 @@
 import express from "express";
+import validateObjectId from "../middleware/validateObjectId.js";
 import auth from "../middleware/auth.js";
 import { requirePlan } from "../middleware/requirePlan.js";
 import { getExclusiveCommunity } from "../controller/community.js";
@@ -28,6 +29,9 @@ import {
 } from "../controller/communitySocial.js";
 
 const router = express.Router();
+router.param("id", validateObjectId);
+router.param("userId", validateObjectId);
+router.param("commentId", validateObjectId);
 
 router.get("/exclusive", auth, requirePlan("gold"), getExclusiveCommunity);
 router.get("/feed", optionalAuth, getFeed);

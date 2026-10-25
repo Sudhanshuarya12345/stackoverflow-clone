@@ -18,6 +18,6 @@ export const sendSms = async (toPhone, body) => {
     from: process.env.TWILIO_FROM_NUMBER,
     body,
   });
-  console.log("Password reset SMS sent:", message.sid, "status:", message.status);
+  console.log("SMS sent:", message.sid, "status:", message.status);
   return message;
 };

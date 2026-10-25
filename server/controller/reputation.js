@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import User from "../models/auth.js";
 import ReputationLog from "../models/ReputationLog.js";
 import ReputationTransfer from "../models/ReputationTransfer.js";
+import { todayKey } from "../utils/day.js";
 import { PRIVILEGES, REPUTATION_RULES, TRANSFER_RULES, changeReputation } from "../services/reputationService.js";
 
 const getPagination = (query) => {
@@ -37,7 +38,7 @@ export const getMyTransfers = async (req, res) => {
   try {
     const { page, limit, skip } = getPagination(req.query);
     const filter = { $or: [{ sender: req.userid }, { receiver: req.userid }] };
-    const todayStr = new Date().toISOString().split("T")[0];
+    const todayStr = todayKey();
     const [data, total, me] = await Promise.all([
       ReputationTransfer.find(filter)
         .sort({ createdAt: -1 })
@@ -90,7 +91,7 @@ export const transferReputation = async (req, res) => {
     if (amount > sender.reputation) return res.status(400).json({ message: "You don't have enough reputation for this transfer" });
 
     // Debit the sender and reserve today's allowance in one atomic, conditional update.
-    const todayStr = new Date().toISOString().split("T")[0];
+    const todayStr = todayKey();
     const sentToday = { $cond: [{ $eq: ["$repTransferDate", todayStr] }, { $ifNull: ["$repTransferredToday", 0] }, 0] };
     const debited = await User.findOneAndUpdate(
       {
