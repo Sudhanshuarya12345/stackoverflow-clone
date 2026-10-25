@@ -75,6 +75,16 @@ export const deleteanswer = async (req, res) => {
     );
     if (!updatequestion) return res.status(404).json({ message: "Answer not found" });
 
+    // An accepted answer that disappears no longer earns its +10.
+    if (wasAccepted && String(answer.userid) !== String(questionDoc.userid)) {
+      await changeReputation(answer.userid, -REPUTATION_RULES.answerAccepted, {
+        type: "accept_revoked",
+        reason: `Accepted answer on "${questionDoc.questiontitle}" was deleted`,
+        actor: req.userid,
+        questionId: _id,
+        answerId: answerid,
+      });
+    }
     if (isOwner) {
       await changeReputation(answer.userid, REPUTATION_RULES.answerDeletedByOwner, {
         type: "answer_deleted",

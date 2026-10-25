@@ -39,25 +39,43 @@ export const parseUserAgent = (ua = "") => {
 };
 
 export const getClientIp = (req) => {
+  // Render fronts the app with Cloudflare, which puts the visitor's address in these headers.
+  const edge = req.headers["cf-connecting-ip"] || req.headers["true-client-ip"];
   const forwarded = req.headers["x-forwarded-for"];
-  const ip = (forwarded ? String(forwarded).split(",")[0] : req.socket?.remoteAddress || "").trim();
+  const ip = (edge ? String(edge) : forwarded ? String(forwarded).split(",")[0] : req.socket?.remoteAddress || "").trim();
   return ip.replace(/^::ffff:/, "");
 };
 
 const isPrivateIp = (ip = "") =>
   !ip || ip === "::1" || /^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|fc|fd|fe80)/i.test(ip);
 
-// Best-effort geolocation. Disabled unless LOGIN_GEOLOCATION=true, and never blocks login for more than ~1.5s.
+const GEO_PROVIDERS = [
+  {
+    url: (ip) => `https://ipapi.co/${encodeURIComponent(ip)}/json/`,
+    parse: (data) => (data.error ? [] : [data.city, data.region, data.country_name]),
+  },
+  {
+    url: (ip) => `https://ipwho.is/${encodeURIComponent(ip)}`,
+    parse: (data) => (data.success === false ? [] : [data.city, data.region, data.country]),
+  },
+];
+
+// Best-effort geolocation ("if available"). On by default; set LOGIN_GEOLOCATION=false to disable.
+// Tries a second free provider when the first is rate limited, and never blocks login for more than ~3s.
 export const lookupLocation = async (ip) => {
-  if (process.env.LOGIN_GEOLOCATION !== "true" || isPrivateIp(ip)) return isPrivateIp(ip) ? "Local network" : undefined;
-  try {
-    const res = await fetch(`https://ipapi.co/${encodeURIComponent(ip)}/json/`, { signal: AbortSignal.timeout(1500) });
-    if (!res.ok) return undefined;
-    const data = await res.json();
-    return [data.city, data.region, data.country_name].filter(Boolean).join(", ") || undefined;
-  } catch {
-    return undefined;
+  if (isPrivateIp(ip)) return "Local network";
+  if (process.env.LOGIN_GEOLOCATION === "false") return undefined;
+  for (const provider of GEO_PROVIDERS) {
+    try {
+      const res = await fetch(provider.url(ip), { signal: AbortSignal.timeout(1500) });
+      if (!res.ok) continue;
+      const location = provider.parse(await res.json()).filter(Boolean).join(", ");
+      if (location) return location;
+    } catch {
+      // Try the next provider.
+    }
   }
+  return undefined;
 };
 
 export const hashDeviceId = (deviceId) => {

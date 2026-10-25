@@ -6,6 +6,7 @@ import User from "../models/auth.js";
 import { PLANS } from "../config/plans.js";
 import { generateInvoicePdfBuffer } from "../utils/invoicePdf.js";
 import { refreshUserPlanFromSubscription } from "../services/subscriptionAccess.js";
+import { syncPaymentsFromRazorpay } from "../services/subscriptionBilling.js";
 
 // Utility to get Razorpay instance lazily
 const getRazorpayInstance = () => {
@@ -162,7 +163,14 @@ export const reconcileMySubscription = async (req, res) => {
       updates.cancelled_at = new Date();
     }
 
-    const updated = await Subscription.findByIdAndUpdate(sub._id, updates, { new: true });
+    let updated = await Subscription.findByIdAndUpdate(sub._id, updates, { new: true });
+    if (["authenticated", "active", "pending"].includes(remoteSub.status)) {
+      try {
+        if (await syncPaymentsFromRazorpay(rzp, updated)) updated = await Subscription.findById(sub._id);
+      } catch (syncError) {
+        console.error("Could not sync Razorpay payments:", syncError.message);
+      }
+    }
     const userState = await refreshUserPlanFromSubscription(req.userid);
     res.status(200).json({ subscription: updated, userPlanDetails: userState });
   } catch (error) {
@@ -213,13 +221,14 @@ export const updateMyBillingDetails = async (req, res) => {
       "billingName", "billingEmail", "addressLine1", "addressLine2",
       "city", "state", "country", "postalCode", "gstNumber",
     ];
+    const source = { ...(req.body.billingDetails || {}), ...req.body };
     const cleaned = {};
     allowed.forEach((field) => {
-      if (req.body[field] !== undefined) cleaned[field] = req.body[field];
+      if (source[field] !== undefined && source[field] !== null) cleaned[field] = String(source[field]).trim().slice(0, 200);
     });
     const user = await User.findByIdAndUpdate(
       req.userid,
-      { $set: { billingDetails: { ...req.body.billingDetails, ...cleaned } } },
+      { $set: { billingDetails: cleaned } },
       { new: true }
     ).select("billingDetails email name");
     res.status(200).json({ billingDetails: user?.billingDetails || {} });

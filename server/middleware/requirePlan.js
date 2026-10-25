@@ -1,6 +1,7 @@
 import User from "../models/auth.js";
 import { PLANS, PLAN_LEVELS } from "../config/plans.js";
 import { refreshUserPlanFromSubscription } from "../services/subscriptionAccess.js";
+import { todayKey } from "../utils/day.js";
 
 export const requirePlan = (minPlan) => {
   return async (req, res, next) => {
@@ -33,7 +34,7 @@ export const checkQuestionLimit = async (req, res, next) => {
       return res.status(404).json({ message: "User not found" });
     }
 
-    const todayDateStr = new Date().toISOString().split('T')[0]; // Midnight UTC
+    const todayDateStr = todayKey();
     const plan = refreshed.plan || user.plan || "free";
     const limit = PLANS[plan]?.dailyLimit || 1;
 

@@ -13,6 +13,20 @@ const commentPrivilegeError = async (userId, ownerIds) => {
 };
 
 const MAX_IMAGES = 4;
+const POST_TYPES = ["update", "showcase", "project", "achievement", "snippet"];
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+// Coerces untrusted request fields into the shapes the post schema expects.
+const readPostInput = (body = {}) => ({
+  content: typeof body.content === "string" ? body.content.trim() : "",
+  type: POST_TYPES.includes(body.type) ? body.type : "update",
+  images: Array.isArray(body.images) ? body.images.filter((image) => typeof image === "string") : [],
+  keepImageIds: Array.isArray(body.keepImageIds) ? body.keepImageIds.map(String) : [],
+  code: {
+    language: typeof body.code?.language === "string" ? body.code.language.slice(0, 30) : "text",
+    code: typeof body.code?.code === "string" ? body.code.code.trim() : "",
+  },
+});
 const MAX_LIMIT = 25;
 
 const getPagination = (query) => {
@@ -52,9 +66,8 @@ const buildPostResponse = async (post, userId) => {
 
 export const createPost = async (req, res) => {
   try {
-    const { content = "", type = "update", images = [], code = {} } = req.body;
-    const normalizedContent = content.trim();
-    const hasCode = Boolean(code?.code?.trim());
+    const { content: normalizedContent, type, images, code } = readPostInput(req.body);
+    const hasCode = Boolean(code.code);
     if (!normalizedContent && !images.length && !hasCode) {
       return res.status(400).json({ message: "Add text, an image, or a code snippet before posting." });
     }
@@ -66,7 +79,7 @@ export const createPost = async (req, res) => {
       content: normalizedContent,
       type,
       images: uploadedImages,
-      code: hasCode ? { language: code.language || "text", code: code.code.trim() } : undefined,
+      code: hasCode ? { language: code.language || "text", code: code.code } : undefined,
       hashtags: extractHashtags(normalizedContent),
       mentions: mentionedUsers.map((u) => u._id),
     });
@@ -85,7 +98,7 @@ export const getFeed = async (req, res) => {
     const { tab = "latest", hashtag, q } = req.query;
     const filter = { status: "active" };
     if (hashtag) filter.hashtags = String(hashtag).replace(/^#/, "").toLowerCase();
-    if (q) filter.$text = { $search: q };
+    if (q) filter.$text = { $search: String(q) };
 
     if (tab === "following") {
       if (!req.userid) return res.status(401).json({ message: "Login required for your following feed" });
@@ -192,7 +205,7 @@ export const getPostById = async (req, res) => {
 export const updatePost = async (req, res) => {
   try {
     const { id } = req.params;
-    const { content = "", type = "update", images = [], keepImageIds = [], code = {} } = req.body;
+    const { content: normalizedContent, type, images, keepImageIds, code } = readPostInput(req.body);
     const post = await CommunityPost.findById(id);
     if (!post) return res.status(404).json({ message: "Post not found" });
     const isOwner = String(post.author) === String(req.userid);
@@ -205,13 +218,12 @@ export const updatePost = async (req, res) => {
     await destroyImages(removedImages);
     const keptImages = post.images.filter((image) => keepImageIds.includes(image.publicId));
     const uploadedImages = await uploadImages(images);
-    const normalizedContent = content.trim();
     const mentionedUsers = await findMentionedUsers(normalizedContent);
 
     post.content = normalizedContent;
     post.type = type;
     post.images = [...keptImages, ...uploadedImages].slice(0, MAX_IMAGES);
-    post.code = code?.code?.trim() ? { language: code.language || "text", code: code.code.trim() } : { language: "text", code: "" };
+    post.code = code.code ? { language: code.language || "text", code: code.code } : { language: "text", code: "" };
     post.hashtags = extractHashtags(normalizedContent);
     post.mentions = mentionedUsers.map((u) => u._id);
     await post.save();
@@ -246,19 +258,25 @@ export const deletePost = async (req, res) => {
 
 export const toggleLike = async (req, res) => {
   try {
-    const post = await CommunityPost.findOne({ _id: req.params.id, status: "active" });
-    if (!post) return res.status(404).json({ message: "Post not found" });
-    const liked = post.likes.some((id) => String(id) === String(req.userid));
+    const filter = { _id: req.params.id, status: "active" };
+    // Conditional atomic updates: a double click can never add two likes or skew the engagement score.
+    let post = await CommunityPost.findOneAndUpdate(
+      { ...filter, likes: { $ne: req.userid } },
+      { $addToSet: { likes: req.userid }, $inc: { engagementScore: 2 } },
+      { new: true }
+    );
+    const liked = Boolean(post);
     if (liked) {
-      post.likes = post.likes.filter((id) => String(id) !== String(req.userid));
-      post.engagementScore = Math.max(0, post.engagementScore - 2);
-    } else {
-      post.likes.push(req.userid);
-      post.engagementScore += 2;
       await notify({ recipient: post.author, actor: req.userid, type: "like", postId: post._id });
+    } else {
+      post = await CommunityPost.findOneAndUpdate(
+        { ...filter, likes: req.userid },
+        { $pull: { likes: req.userid }, $inc: { engagementScore: -2 } },
+        { new: true }
+      );
+      if (!post) return res.status(404).json({ message: "Post not found" });
     }
-    await post.save();
-    res.status(200).json({ liked: !liked, data: await buildPostResponse(post, req.userid) });
+    res.status(200).json({ liked, data: await buildPostResponse(post, req.userid) });
   } catch (error) {
     console.log(error);
     res.status(500).json({ message: "Could not update like" });
@@ -267,7 +285,7 @@ export const toggleLike = async (req, res) => {
 
 export const addComment = async (req, res) => {
   try {
-    const { body = "" } = req.body;
+    const body = typeof req.body.body === "string" ? req.body.body : "";
     if (!body.trim()) return res.status(400).json({ message: "Comment body is required" });
     const post = await CommunityPost.findOne({ _id: req.params.id, status: "active" });
     if (!post) return res.status(404).json({ message: "Post not found" });
@@ -288,7 +306,7 @@ export const addComment = async (req, res) => {
 
 export const addReply = async (req, res) => {
   try {
-    const { body = "" } = req.body;
+    const body = typeof req.body.body === "string" ? req.body.body : "";
     if (!body.trim()) return res.status(400).json({ message: "Reply body is required" });
     const post = await CommunityPost.findOne({ _id: req.params.id, status: "active" });
     if (!post) return res.status(404).json({ message: "Post not found" });
@@ -312,12 +330,18 @@ export const addReply = async (req, res) => {
 
 export const toggleBookmark = async (req, res) => {
   try {
-    const post = await CommunityPost.findOne({ _id: req.params.id, status: "active" });
-    if (!post) return res.status(404).json({ message: "Post not found" });
-    const bookmarked = post.bookmarks.some((id) => String(id) === String(req.userid));
-    post.bookmarks = bookmarked ? post.bookmarks.filter((id) => String(id) !== String(req.userid)) : [...post.bookmarks, req.userid];
-    await post.save();
-    res.status(200).json({ bookmarked: !bookmarked, data: await buildPostResponse(post, req.userid) });
+    const filter = { _id: req.params.id, status: "active" };
+    let post = await CommunityPost.findOneAndUpdate(
+      { ...filter, bookmarks: { $ne: req.userid } },
+      { $addToSet: { bookmarks: req.userid } },
+      { new: true }
+    );
+    const bookmarked = Boolean(post);
+    if (!bookmarked) {
+      post = await CommunityPost.findOneAndUpdate({ ...filter, bookmarks: req.userid }, { $pull: { bookmarks: req.userid } }, { new: true });
+      if (!post) return res.status(404).json({ message: "Post not found" });
+    }
+    res.status(200).json({ bookmarked, data: await buildPostResponse(post, req.userid) });
   } catch (error) {
     console.log(error);
     res.status(500).json({ message: "Could not update bookmark" });
@@ -347,7 +371,7 @@ export const getHashtags = async (req, res) => {
     const data = await CommunityPost.aggregate([
       { $match: match },
       { $unwind: "$hashtags" },
-      ...(q ? [{ $match: { hashtags: { $regex: `^${q}` } } }] : []),
+      ...(q ? [{ $match: { hashtags: { $regex: `^${escapeRegex(q)}` } } }] : []),
       { $group: { _id: "$hashtags", count: { $sum: 1 } } },
       { $sort: { count: -1, _id: 1 } },
       { $limit: 20 },

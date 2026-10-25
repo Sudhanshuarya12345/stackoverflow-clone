@@ -1,8 +1,10 @@
 import express from "express";
+import validateObjectId from "../middleware/validateObjectId.js";
 import { getNotifications, getUnreadCount, markAllRead, markRead } from "../controller/notification.js";
 import auth from "../middleware/auth.js";
 
 const router = express.Router();
+router.param("id", validateObjectId);
 
 router.get("/", auth, getNotifications);
 router.get("/unread-count", auth, getUnreadCount);

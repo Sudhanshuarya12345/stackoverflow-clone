@@ -7,6 +7,8 @@ import { sendOtpSms } from "../utils/sms.js";
 const OTP_TTL_MS = 10 * 60 * 1000;
 const OTP_MAX_ATTEMPTS = 5;
 const OTP_RESEND_COOLDOWN_MS = 60 * 1000;
+// Each resend gives a fresh set of attempts, so resends are capped to bound the total number of guesses.
+const OTP_MAX_RESENDS = 3;
 
 const hashCode = (code) => crypto.createHash("sha256").update(String(code)).digest("hex");
 const generateCode = () => String(crypto.randomInt(0, 1000000)).padStart(6, "0");
@@ -35,7 +37,12 @@ export const maskPhone = (phone = "") => {
 const deliver = async (user, channel, code, purpose) => {
   if (channel === "email") {
     const sent = await sendOtpEmail(user.email, code, purpose);
-    if (!sent) throw new Error("Could not send the verification email. Please try again later.");
+    if (!sent) {
+      throw Object.assign(new Error("Could not send the verification email. Please try again later."), {
+        status: 503,
+        code: "EMAIL_FAILED",
+      });
+    }
     return;
   }
   const purposeText =
@@ -91,9 +98,13 @@ export const resendOtp = async (user, challengeId, purpose) => {
   if (Date.now() - otp.lastSentAt.getTime() < OTP_RESEND_COOLDOWN_MS) {
     throw Object.assign(new Error("Please wait a minute before requesting another code."), { status: 429 });
   }
+  if ((otp.resendCount || 0) >= OTP_MAX_RESENDS) {
+    throw Object.assign(new Error("Too many codes requested. Please start again."), { status: 429 });
+  }
   const code = generateCode();
   otp.codeHash = hashCode(code);
   otp.attempts = 0;
+  otp.resendCount = (otp.resendCount || 0) + 1;
   otp.lastSentAt = new Date();
   otp.expiresAt = new Date(Date.now() + OTP_TTL_MS);
   await otp.save();
@@ -108,13 +119,19 @@ export const verifyOtp = async ({ challengeId, purpose, code, userId, validate }
   if (userId) filter.user = userId;
   const otp = await Otp.findOne(filter);
   if (!otp || otp.expiresAt <= new Date()) throw Object.assign(new Error("Verification code expired. Please request a new one."), { status: 400 });
-  if (otp.attempts >= OTP_MAX_ATTEMPTS) throw Object.assign(new Error("Too many incorrect attempts. Please request a new code."), { status: 429 });
   if (validate) validate(otp);
 
-  const expected = Buffer.from(otp.codeHash, "hex");
+  // Reserve the attempt atomically before comparing, so parallel guesses cannot exceed the limit.
+  const reserved = await Otp.findOneAndUpdate(
+    { _id: otp._id, consumedAt: { $exists: false }, attempts: { $lt: OTP_MAX_ATTEMPTS } },
+    { $inc: { attempts: 1 } },
+    { new: true }
+  );
+  if (!reserved) throw Object.assign(new Error("Too many incorrect attempts. Please request a new code."), { status: 429 });
+
+  const expected = Buffer.from(reserved.codeHash, "hex");
   const received = Buffer.from(hashCode(String(code || "").trim()), "hex");
   if (!crypto.timingSafeEqual(expected, received)) {
-    await Otp.updateOne({ _id: otp._id }, { $inc: { attempts: 1 } });
     throw Object.assign(new Error("Incorrect verification code."), { status: 400 });
   }
   const consumed = await Otp.findOneAndUpdate(

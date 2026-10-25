@@ -1,10 +1,17 @@
 import nodemailer from "nodemailer";
 
+const fromName = () => process.env.EMAIL_FROM_NAME || "StackOverflow Clone";
+const fromEmail = () => process.env.EMAIL_FROM || process.env.SMTP_USER;
+
 const getTransporter = () => {
   return nodemailer.createTransport({
     host: process.env.SMTP_HOST,
     port: process.env.SMTP_PORT,
-    secure: process.env.SMTP_PORT == 465, 
+    secure: process.env.SMTP_PORT == 465,
+    // Fail fast instead of hanging the request for minutes when the host blocks SMTP ports.
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 20000,
     auth: {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,
@@ -12,83 +19,128 @@ const getTransporter = () => {
   });
 };
 
-export const sendSubscriptionEmail = async (toEmail, planName, invoiceNumber, pdfBuffer, details = {}) => {
+const toBase64 = (content) =>
+  Buffer.isBuffer(content) ? content.toString("base64") : Buffer.from(String(content)).toString("base64");
+
+const sendWithBrevo = async ({ to, subject, text, html, attachments = [] }) => {
+  const sender = fromEmail();
+  if (!sender) throw new Error("EMAIL_FROM (or SMTP_USER) must be set when using BREVO_API_KEY");
+  const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+    method: "POST",
+    signal: AbortSignal.timeout(15000),
+    headers: {
+      "api-key": process.env.BREVO_API_KEY,
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({
+      sender: { name: fromName(), email: sender },
+      to: [{ email: to }],
+      subject,
+      textContent: text,
+      htmlContent: html,
+      // Brevo rejects an empty attachment list, so only send the field when there is something to attach.
+      ...(attachments.length
+        ? { attachment: attachments.map((file) => ({ name: file.filename, content: toBase64(file.content) })) }
+        : {}),
+    }),
+  });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(`Brevo responded ${response.status}${detail ? `: ${detail.slice(0, 300)}` : ""}`);
+  }
+  const data = await response.json().catch(() => ({}));
+  return data.messageId || "brevo";
+};
+
+const sendWithResend = async ({ to, subject, text, html, attachments = [] }) => {
+  const sender = fromEmail();
+  if (!sender) throw new Error("EMAIL_FROM must be set when using RESEND_API_KEY");
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    signal: AbortSignal.timeout(15000),
+    headers: {
+      Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: `${fromName()} <${sender}>`,
+      to: [to],
+      subject,
+      text,
+      html,
+      ...(attachments.length
+        ? { attachments: attachments.map((file) => ({ filename: file.filename, content: toBase64(file.content) })) }
+        : {}),
+    }),
+  });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(`Resend responded ${response.status}${detail ? `: ${detail.slice(0, 300)}` : ""}`);
+  }
+  const data = await response.json().catch(() => ({}));
+  return data.id || "resend";
+};
+
+const sendWithSmtp = async ({ to, subject, text, html, attachments = [] }) => {
+  const info = await getTransporter().sendMail({
+    from: `"${fromName()}" <${fromEmail()}>`,
+    to,
+    subject,
+    text,
+    html,
+    attachments,
+  });
+  return info.messageId;
+};
+
+// Uses an HTTPS email API when a key is configured (required on Render's free
+// plan, which blocks outbound SMTP), otherwise falls back to SMTP for local dev.
+const sendMail = async (message) => {
   try {
-    const transporter = getTransporter();
-    
-    const mailOptions = {
-      from: `"StackOverflow Clone" <${process.env.SMTP_USER}>`,
-      to: toEmail,
-      subject: `Subscription Confirmation - ${planName} Plan`,
-      text: [
-        `Thank you for subscribing to the ${planName} plan!`,
-        details.amount ? `Amount paid: ${details.amount}` : "",
-        details.periodEnd ? `Renews on: ${details.periodEnd}` : "",
-        details.features?.length ? `Included: ${details.features.join(", ")}` : "",
-        `Your invoice (${invoiceNumber}) is attached.`,
-      ].filter(Boolean).join("\n"),
-      html: `<p>Thank you for subscribing to the <strong>${planName}</strong> plan!</p>
+    let id;
+    if (process.env.BREVO_API_KEY) id = await sendWithBrevo(message);
+    else if (process.env.RESEND_API_KEY) id = await sendWithResend(message);
+    else id = await sendWithSmtp(message);
+    console.log(`Email "${message.subject}" sent:`, id);
+    return true;
+  } catch (error) {
+    console.error(`Error sending email "${message.subject}":`, error.message);
+    return false;
+  }
+};
+
+export const sendSubscriptionEmail = async (toEmail, planName, invoiceNumber, pdfBuffer, details = {}) => {
+  return sendMail({
+    to: toEmail,
+    subject: `Subscription Confirmation - ${planName} Plan`,
+    text: [
+      `Thank you for subscribing to the ${planName} plan!`,
+      details.amount ? `Amount paid: ${details.amount}` : "",
+      details.periodEnd ? `Renews on: ${details.periodEnd}` : "",
+      details.features?.length ? `Included: ${details.features.join(", ")}` : "",
+      `Your invoice (${invoiceNumber}) is attached.`,
+    ].filter(Boolean).join("\n"),
+    html: `<p>Thank you for subscribing to the <strong>${planName}</strong> plan!</p>
         ${details.amount ? `<p>Amount paid: <strong>${details.amount}</strong></p>` : ""}
         ${details.periodEnd ? `<p>Renews on: <strong>${details.periodEnd}</strong></p>` : ""}
         ${details.features?.length ? `<p>Included in your plan:</p><ul>${details.features.map((f) => `<li>${f}</li>`).join("")}</ul>` : ""}
         <p>Your invoice (${invoiceNumber}) is attached to this email.</p>`,
-      attachments: [
-        {
-          filename: `${invoiceNumber}.pdf`,
-          content: pdfBuffer,
-          contentType: "application/pdf",
-        },
-      ],
-    };
-
-    const info = await transporter.sendMail(mailOptions);
-    console.log("Invoice email sent:", info.messageId);
-    return true;
-  } catch (error) {
-    console.error("Error sending subscription email:", error);
-    return false;
-  }
+    attachments: [{ filename: `${invoiceNumber}.pdf`, content: pdfBuffer, contentType: "application/pdf" }],
+  });
 };
 
 export const sendPasswordResetEmail = async (toEmail, password) => {
-  try {
-    const transporter = getTransporter();
-    const mailOptions = {
-      from: `"StackOverflow Clone" <${process.env.SMTP_USER}>`,
-      to: toEmail,
-      subject: "Your password has been reset",
-      text: `Your new password is: ${password}\nPlease log in with this password and change it after logging in.`,
-      html: `<p>Your new password is: <strong>${password}</strong></p><p>Please log in with this password and change it after logging in.</p>`,
-    };
-    const info = await transporter.sendMail(mailOptions);
-    console.log("Password reset email sent:", info.messageId);
-    return true;
-  } catch (error) {
-    console.error("Error sending password reset email:", error);
-    return false;
-  }
+  return sendMail({
+    to: toEmail,
+    subject: "Your password has been reset",
+    text: `Your new password is: ${password}\nPlease log in with this password and change it after logging in.`,
+    html: `<p>Your new password is: <strong>${password}</strong></p><p>Please log in with this password and change it after logging in.</p>`,
+  });
 };
 
 const escapeHtml = (value = "") =>
   String(value).replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
-
-const sendMail = async ({ to, subject, text, html }) => {
-  try {
-    const transporter = getTransporter();
-    const info = await transporter.sendMail({
-      from: `"StackOverflow Clone" <${process.env.SMTP_USER}>`,
-      to,
-      subject,
-      text,
-      html,
-    });
-    console.log(`Email "${subject}" sent:`, info.messageId);
-    return true;
-  } catch (error) {
-    console.error(`Error sending email "${subject}":`, error.message);
-    return false;
-  }
-};
 
 const OTP_PURPOSE_TEXT = {
   login: "verify a login from a new device",
