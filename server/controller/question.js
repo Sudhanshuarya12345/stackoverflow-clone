@@ -17,11 +17,29 @@ import ReputationLog from "../models/ReputationLog.js";
 const BOUNTY_AMOUNTS = [50, 100, 200, 500];
 const BOUNTY_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
 
-export const expireOldBounties = async () => {
-  await question.updateMany(
-    { "bounty.status": "active", "bounty.expiresAt": { $lte: new Date() } },
-    { $set: { "bounty.status": "expired" } }
-  );
+// Gives an unawarded bounty's reputation back to the member who offered it.
+const refundBounty = async (bounty, questionId, title, reason) => {
+  if (!bounty?.amount || !bounty.startedBy) return;
+  await changeReputation(bounty.startedBy, bounty.amount, {
+    type: "bounty_refunded",
+    reason: `${reason} on "${title}"`,
+    questionId,
+  });
+};
+
+// Expires due bounties and refunds them. Each bounty is claimed atomically, so it is refunded exactly once
+// even if the hourly job and a request handler expire it at the same time.
+export const expireOldBounties = async (filter = {}) => {
+  const due = await question
+    .find({ ...filter, "bounty.status": "active", "bounty.expiresAt": { $lte: new Date() } })
+    .select("_id");
+  for (const { _id } of due) {
+    const expired = await question.findOneAndUpdate(
+      { _id, "bounty.status": "active", "bounty.expiresAt": { $lte: new Date() } },
+      { $set: { "bounty.status": "expired" } }
+    ).select("bounty questiontitle");
+    if (expired) await refundBounty(expired.bounty, _id, expired.questiontitle, "Bounty expired without an award");
+  }
 };
 
 let lastBountyExpiryRun = 0;
@@ -274,6 +292,8 @@ export const startBounty = async (req, res) => {
     const questionDoc = await question.findById(id).select("bounty closed");
     if (!questionDoc) return res.status(404).json({ message: "Question not found" });
     if (questionDoc.closed) return res.status(400).json({ message: "Closed questions cannot receive bounties." });
+    // Refund a previous bounty that has run out before it is replaced by the new one.
+    await expireOldBounties({ _id: questionDoc._id });
     if (questionDoc.bounty?.status === "active" && questionDoc.bounty?.expiresAt > new Date()) {
       return res.status(409).json({ message: "This question already has an active bounty." });
     }
@@ -376,9 +396,8 @@ export const awardBounty = async (req, res) => {
       return res.status(400).json({ message: "This question does not have an active bounty." });
     }
     if (questionDoc.bounty.expiresAt && questionDoc.bounty.expiresAt <= new Date()) {
-      questionDoc.bounty.status = "expired";
-      await questionDoc.save();
-      return res.status(400).json({ message: "This bounty has expired." });
+      await expireOldBounties({ _id: questionDoc._id });
+      return res.status(400).json({ message: "This bounty has expired and was refunded." });
     }
     if (String(questionDoc.userid) !== String(req.userid) && String(questionDoc.bounty.startedBy) !== String(req.userid)) {
       return res.status(403).json({ message: "Only the question owner or bounty starter can award this bounty." });
@@ -390,14 +409,23 @@ export const awardBounty = async (req, res) => {
       return res.status(400).json({ message: "You cannot award a bounty to your own answer." });
     }
 
-    questionDoc.bounty.status = "awarded";
-    questionDoc.bounty.awardedToAnswerId = answerId;
-    questionDoc.bounty.awardedToUserId = answer.userid;
-    questionDoc.bounty.awardedAt = new Date();
+    // Claim the bounty atomically so a double click cannot pay it out twice.
+    const claimed = await question.findOneAndUpdate(
+      { _id: id, "bounty.status": "active" },
+      {
+        $set: {
+          "bounty.status": "awarded",
+          "bounty.awardedToAnswerId": answerId,
+          "bounty.awardedToUserId": answer.userid,
+          "bounty.awardedAt": new Date(),
+        },
+      },
+      { new: true }
+    );
+    if (!claimed) return res.status(409).json({ message: "This bounty was already awarded." });
     // Only the question owner decides the accepted answer; a third-party bounty starter just awards the bounty.
     const isOwner = String(questionDoc.userid) === String(req.userid);
-    if (isOwner && !answer.isAccepted) await applyAcceptance(questionDoc, answerId, req.userid);
-    else await questionDoc.save();
+    if (isOwner && !claimed.answer.id(answerId)?.isAccepted) await applyAcceptance(claimed, answerId, req.userid);
 
     if (mongoose.Types.ObjectId.isValid(answer.userid)) {
       await changeReputation(answer.userid, questionDoc.bounty.amount, {
@@ -411,7 +439,7 @@ export const awardBounty = async (req, res) => {
       await awardBadgeIfEarned(answer.userid, "reputation");
     }
 
-    res.status(200).json({ data: await withPlans(questionDoc) });
+    res.status(200).json({ data: await withPlans(await question.findById(id)) });
   } catch (error) {
     console.log(error);
     res.status(500).json({ message: "Could not award bounty" });
@@ -546,7 +574,11 @@ export const deletequestion = async (req, res) => {
     if (!isOwner && !isAdmin) {
       return res.status(403).json({ message: "You can only delete your own questions" });
     }
-    await question.findByIdAndDelete(_id);
+    const deleted = await question.findByIdAndDelete(_id);
+    // A bounty that can no longer be awarded goes back to whoever offered it.
+    if (deleted?.bounty?.status === "active") {
+      await refundBounty(deleted.bounty, _id, deleted.questiontitle, "Bounty returned because the question was deleted");
+    }
     if (!isOwner && isAdmin) {
       await penalizeRemovedContent(questionDoc.userid, req.userid, `Question "${questionDoc.questiontitle}" removed by an administrator`, { questionId: _id });
     }
