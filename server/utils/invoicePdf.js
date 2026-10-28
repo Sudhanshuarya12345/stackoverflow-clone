@@ -13,7 +13,7 @@ export const generateInvoicePdfBuffer = (paymentDoc, userDoc, planDetails) => {
       // Header
       doc.fontSize(20).text("Invoice", { align: "right" });
       doc.fontSize(10).text(`Invoice Number: ${paymentDoc.invoice_number}`, { align: "right" });
-      doc.text(`Date: ${new Date(paymentDoc.createdAt).toLocaleDateString()}`, { align: "right" });
+      doc.text(`Date: ${new Date(paymentDoc.invoice_issued_at || paymentDoc.createdAt || Date.now()).toLocaleDateString()}`, { align: "right" });
       doc.text(`Transaction ID: ${paymentDoc.transaction_id || paymentDoc.razorpay_payment_id}`, { align: "right" });
       doc.moveDown();
 

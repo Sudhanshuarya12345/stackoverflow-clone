@@ -213,7 +213,9 @@ export default function SettingsPage() {
               {devices.map((d) => (
                 <li key={d._id} className="flex items-center justify-between gap-2 p-3 text-sm">
                   <div className="min-w-0">
-                    <p className="font-medium text-gray-900">{d.label}</p>
+                    <p className="font-medium text-gray-900">
+                      {d.browser ? `${d.browser} · ${d.os} · ${t(`device.${d.deviceType}` as any)}` : d.label}
+                    </p>
                     <p className="text-xs text-gray-500">
                       {t("security.lastUsed")} {formatDateTime(d.lastUsedAt)} · {t("security.trustedUntil")} {formatDateTime(d.expiresAt)}
                     </p>

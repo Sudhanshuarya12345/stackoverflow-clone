@@ -90,68 +90,96 @@ export const transferReputation = async (req, res) => {
     }
     if (amount > sender.reputation) return res.status(400).json({ message: "You don't have enough reputation for this transfer" });
 
-    // Debit the sender and reserve today's allowance in one atomic, conditional update.
+    // Sender debit, recipient credit, the transfer record and both history entries commit together or not at all.
+    // withTransaction retries the whole block on transient errors (e.g. two transfers racing on the same sender).
     const todayStr = todayKey();
     const sentToday = { $cond: [{ $eq: ["$repTransferDate", todayStr] }, { $ifNull: ["$repTransferredToday", 0] }, 0] };
-    const debited = await User.findOneAndUpdate(
-      {
-        _id: req.userid,
-        reputation: { $gt: TRANSFER_RULES.minBalance, $gte: amount },
-        $expr: { $lte: [{ $add: [sentToday, amount] }, TRANSFER_RULES.maxPerDay] },
-      },
-      [
-        {
-          $set: {
-            reputation: { $subtract: ["$reputation", amount] },
-            repTransferredToday: { $add: [sentToday, amount] },
-            repTransferDate: todayStr,
+    const session = await mongoose.startSession();
+    let result;
+    try {
+      await session.withTransaction(async () => {
+        result = null;
+        // Debit the sender and reserve today's allowance in one conditional update.
+        const debited = await User.findOneAndUpdate(
+          {
+            _id: req.userid,
+            reputation: { $gt: TRANSFER_RULES.minBalance, $gte: amount },
+            $expr: { $lte: [{ $add: [sentToday, amount] }, TRANSFER_RULES.maxPerDay] },
           },
-        },
-      ],
-      { new: true }
-    );
-    if (!debited) {
+          [
+            {
+              $set: {
+                reputation: { $subtract: ["$reputation", amount] },
+                repTransferredToday: { $add: [sentToday, amount] },
+                repTransferDate: todayStr,
+              },
+            },
+          ],
+          { new: true, session }
+        );
+        if (!debited) {
+          result = { limitReached: true };
+          return;
+        }
+
+        // Credit the recipient and write their history entry.
+        const transferId = new mongoose.Types.ObjectId();
+        const receiverBalance = await changeReputation(receiverId, amount, {
+          type: "transfer_received",
+          reason: `Received from a community member: ${reason}`,
+          note: reason,
+          actor: req.userid,
+          transferId,
+          session,
+        });
+        // Receiver vanished between checks: aborting the transaction rolls back the debit.
+        if (receiverBalance === null) throw Object.assign(new Error("Recipient not found"), { status: 404 });
+
+        const [transfer] = await ReputationTransfer.create(
+          [
+            {
+              _id: transferId,
+              sender: req.userid,
+              receiver: receiverId,
+              amount,
+              reason,
+              senderBalanceAfter: debited.reputation,
+              receiverBalanceAfter: receiverBalance,
+            },
+          ],
+          { session }
+        );
+        await ReputationLog.create(
+          [
+            {
+              user: req.userid,
+              delta: -amount,
+              type: "transfer_sent",
+              reason: `Sent to ${receiver.name}: ${reason}`,
+              note: reason,
+              balanceAfter: debited.reputation,
+              actor: req.userid,
+              transferId: transfer._id,
+            },
+          ],
+          { session }
+        );
+        result = { transfer, debited };
+      });
+    } finally {
+      await session.endSession();
+    }
+
+    if (result.limitReached) {
       const used = sender.repTransferDate === todayStr ? sender.repTransferredToday || 0 : 0;
       return res.status(400).json({
         message: `Daily transfer limit is ${TRANSFER_RULES.maxPerDay} points. You can still send ${Math.max(0, TRANSFER_RULES.maxPerDay - used)} today.`,
       });
     }
-
-    const transfer = await ReputationTransfer.create({
-      sender: req.userid,
-      receiver: receiverId,
-      amount,
-      reason,
-      senderBalanceAfter: debited.reputation,
-    });
-    const receiverBalance = await changeReputation(receiverId, amount, {
-      type: "transfer_received",
-      reason: `Received from a community member: ${reason}`,
-      note: reason,
-      actor: req.userid,
-      transferId: transfer._id,
-    });
-    if (receiverBalance === null) {
-      // Receiver vanished between checks: refund the sender.
-      await User.updateOne({ _id: req.userid }, { $inc: { reputation: amount, repTransferredToday: -amount } });
-      await ReputationTransfer.deleteOne({ _id: transfer._id });
-      return res.status(404).json({ message: "Recipient not found" });
-    }
-    transfer.receiverBalanceAfter = receiverBalance;
-    await transfer.save();
-    await ReputationLog.create({
-      user: req.userid,
-      delta: -amount,
-      type: "transfer_sent",
-      reason: `Sent to ${receiver.name}: ${reason}`,
-      note: reason,
-      balanceAfter: debited.reputation,
-      actor: req.userid,
-      transferId: transfer._id,
-    });
-
+    const { transfer, debited } = result;
     res.status(201).json({ data: transfer, reputation: debited.reputation, remainingToday: TRANSFER_RULES.maxPerDay - debited.repTransferredToday });
   } catch (error) {
+    if (error.status === 404) return res.status(404).json({ message: error.message });
     console.log(error);
     res.status(500).json({ message: "Could not transfer reputation" });
   }

@@ -24,6 +24,7 @@ const hi: Record<TranslationKey, string> = {
   "nav.admin": "एडमिन",
   "nav.feed": "कम्युनिटी फ़ीड",
   "nav.goldCommunity": "गोल्ड कम्युनिटी",
+  "nav.logoAlt": "Code-Quest लोगो",
   "nav.home": "होम",
   "nav.login": "लॉग इन",
   "nav.loginActivity": "लॉगिन गतिविधि",
@@ -292,6 +293,8 @@ const hi: Record<TranslationKey, string> = {
   "q.voteFailed": "आपका वोट दर्ज नहीं हो सका",
   "q.yourAnswer": "आपका उत्तर",
 
+  "feed.plainText": "सादा टेक्स्ट",
+
   "feed.comment": "टिप्पणी करें",
   "feed.commentPlaceholder": "टिप्पणी जोड़ें या किसी सदस्य को @मेंशन करें",
   "feed.commentRestricted": "{min} प्रतिष्ठा होने पर आप दूसरे सदस्यों की पोस्ट पर टिप्पणी कर सकेंगे।",
@@ -523,6 +526,10 @@ const hi: Record<TranslationKey, string> = {
   "billing.country": "देश",
   "billing.details": "बिलिंग विवरण",
   "billing.email": "बिलिंग ईमेल",
+  "billing.email.failed": "पुष्टि ईमेल नहीं पहुँचाया जा सका",
+  "billing.email.pending": "पुष्टि ईमेल कतार में है, स्वचालित रूप से पुनः प्रयास हो रहा है",
+  "billing.email.resend": "फिर से भेजें",
+  "billing.email.sent": "पुष्टि ईमेल भेजा गया",
   "billing.expiresOn": "समाप्ति तिथि",
   "billing.freeNote": "आप अभी फ़्री प्लान पर हैं। ज़्यादा प्रश्न, बैज और खोज सुविधाओं के लिए अपग्रेड करें।",
   "billing.gst": "GST नंबर (वैकल्पिक)",

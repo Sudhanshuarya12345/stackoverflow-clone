@@ -1,7 +1,8 @@
 import crypto from "crypto";
 import mongoose from "mongoose";
 import Otp from "../models/Otp.js";
-import { sendOtpEmail } from "../utils/mailer.js";
+import { otpPurposeText, sendOtpEmail } from "../utils/mailer.js";
+import { emailText } from "../i18n/index.js";
 import { sendOtpSms } from "../utils/sms.js";
 
 const OTP_TTL_MS = 10 * 60 * 1000;
@@ -36,7 +37,7 @@ export const maskPhone = (phone = "") => {
 
 const deliver = async (user, channel, code, purpose) => {
   if (channel === "email") {
-    const sent = await sendOtpEmail(user.email, code, purpose);
+    const sent = await sendOtpEmail(user.email, code, purpose, user.language);
     if (!sent) {
       throw Object.assign(new Error("Could not send the verification email. Please try again later."), {
         status: 503,
@@ -45,10 +46,9 @@ const deliver = async (user, channel, code, purpose) => {
     }
     return;
   }
-  const purposeText =
-    purpose === "language" ? "confirm your language change" : purpose === "reset" ? "reset your password" : "verify your login";
+  const action = otpPurposeText(purpose, user.language);
   try {
-    await sendOtpSms(formatPhoneForSms(user.phone), code, `Your verification code is ${code}. Use it to ${purposeText}. It expires in 10 minutes.`);
+    await sendOtpSms(formatPhoneForSms(user.phone), code, emailText(user.language, "otp.sms", { code, action }));
   } catch (error) {
     // Keep provider details (e.g. Twilio 20003) in the server log; show the user something actionable.
     console.error(`SMS OTP delivery failed (${error.code || "no code"}): ${error.message}`);

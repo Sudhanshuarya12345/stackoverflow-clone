@@ -24,6 +24,7 @@ const en = {
   "nav.admin": "Admin",
   "nav.feed": "Community Feed",
   "nav.goldCommunity": "Gold Community",
+  "nav.logoAlt": "Code-Quest logo",
   "nav.home": "Home",
   "nav.login": "Log in",
   "nav.loginActivity": "Login activity",
@@ -304,6 +305,7 @@ const en = {
   "q.yourAnswer": "Your Answer",
 
   // feed
+  "feed.plainText": "Plain text",
   "feed.comment": "Comment",
   "feed.commentPlaceholder": "Add a comment or @mention another member",
   "feed.commentRestricted": "You can comment on other members' posts once you reach {min} reputation.",
@@ -542,6 +544,10 @@ const en = {
   "billing.country": "Country",
   "billing.details": "Billing Details",
   "billing.email": "Billing email",
+  "billing.email.failed": "Confirmation email could not be delivered",
+  "billing.email.pending": "Confirmation email queued, retrying automatically",
+  "billing.email.resend": "Resend",
+  "billing.email.sent": "Confirmation emailed",
   "billing.expiresOn": "Expires on",
   "billing.freeNote": "You are currently on the Free plan. Upgrade to unlock more questions, badges, and search perks.",
   "billing.gst": "GST number (optional)",

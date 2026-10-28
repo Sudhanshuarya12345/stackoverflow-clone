@@ -102,6 +102,9 @@ export const trustDevice = async (userId, device) => {
     { user: userId, deviceHash: device.deviceHash },
     {
       label: `${device.browser} on ${device.os} (${device.deviceType})`,
+      browser: device.browser,
+      os: device.os,
+      deviceType: device.deviceType,
       lastUsedAt: new Date(),
       expiresAt: new Date(Date.now() + TRUSTED_DEVICE_MS()),
     },
