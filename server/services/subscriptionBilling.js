@@ -183,6 +183,8 @@ export const retryPendingInvoiceEmails = async ({ userId, limit = 25 } = {}) => 
     invoice_email_sent_at: null,
     invoice_email_attempts: { $not: { $gte: MAX_AUTOMATIC_EMAIL_ATTEMPTS } },
     $or: [{ invoice_email_next_attempt_at: null }, { invoice_email_next_attempt_at: { $lte: now } }],
+    // Only recent payments: never email a stale invoice for an old payment recorded before delivery was tracked.
+    createdAt: { $gte: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000) },
   })
     .sort({ createdAt: 1 })
     .limit(limit)
