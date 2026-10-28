@@ -17,9 +17,18 @@ const paymentSchema = mongoose.Schema(
     transaction_id: { type: String },
     tax_amount: { type: Number, default: 0 },
     invoice_number: { type: String, unique: true, sparse: true },
+    invoice_issued_at: { type: Date },
+    // The invoice as issued, rendered in the same transaction that activates the subscription.
+    invoice_pdf: { type: Buffer, select: false },
     invoice_email_sent_at: { type: Date },
+    // Outbox bookkeeping for the confirmation email, which is retried with backoff until it is delivered.
+    invoice_email_attempts: { type: Number, default: 0 },
+    invoice_email_last_error: { type: String, select: false },
+    invoice_email_next_attempt_at: { type: Date },
   },
   { timestamps: true }
 );
+
+paymentSchema.index({ status: 1, invoice_email_sent_at: 1, invoice_email_next_attempt_at: 1 });
 
 export default mongoose.model("Payment", paymentSchema);

@@ -11,9 +11,11 @@ import communityroutes from "./routes/community.js"
 import supportroutes from "./routes/support.js"
 import notificationroutes from "./routes/notification.js"
 import adminroutes from "./routes/admin.js"
+import localize from "./middleware/localize.js";
 import { expireDueSubscriptions } from "./services/subscriptionAccess.js";
 import { expireOldBounties } from "./controller/question.js";
 import { expireInactiveSessions } from "./services/sessionService.js";
+import { retryPendingInvoiceEmails } from "./services/subscriptionBilling.js";
 dotenv.config();
 const app = express();
 // Behind Render/Vercel/NGINX the client IP arrives in X-Forwarded-For.
@@ -26,6 +28,8 @@ app.use(express.json({ limit: "30mb", extended: true }));
 app.use(express.urlencoded({ limit: "30mb", extended: true }));
 const allowedOrigins = (process.env.CORS_ORIGINS || "").split(",").map((o) => o.trim()).filter(Boolean);
 app.use(cors(allowedOrigins.length ? { origin: allowedOrigins } : {}));
+// Translates API response messages into the language the user is viewing the site in.
+app.use(localize);
 app.get("/", (req, res) => {
   res.send("Stackoverflow clone is running perfect");
 });
@@ -62,6 +66,10 @@ setInterval(async () => {
     setInterval(() => {
       expireInactiveSessions().catch((error) => console.error("Session expiry job failed:", error));
     }, 5 * 60 * 1000);
+    // Delivers subscription confirmation emails that failed on the first attempt.
+    setInterval(() => {
+      retryPendingInvoiceEmails().catch((error) => console.error("Invoice email retry job failed:", error));
+    }, 10 * 60 * 1000);
   })
   .catch((err) => {
     console.error("❌ MongoDB connection error:", err.message);

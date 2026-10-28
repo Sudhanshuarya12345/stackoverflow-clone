@@ -6,7 +6,7 @@ import { useI18n } from "@/lib/i18n";
 import { useEffect, useState } from "react";
 import { toast } from "react-toastify";
 import Link from "next/link";
-import { FileDown, Calendar, CreditCard, Clock, CheckCircle, AlertCircle, Star, Save } from "lucide-react";
+import { FileDown, Calendar, CreditCard, Clock, CheckCircle, AlertCircle, Star, Save, Mail } from "lucide-react";
 import PlanBadge from "@/components/PlanBadge";
 
 export default function SubscriptionDashboard() {
@@ -17,6 +17,7 @@ export default function SubscriptionDashboard() {
     const [loading, setLoading] = useState(true);
     const [billing, setBilling] = useState<any>({});
     const [savingBilling, setSavingBilling] = useState(false);
+    const [resendingId, setResendingId] = useState<string | null>(null);
 
     useEffect(() => {
         if (user) {
@@ -87,6 +88,19 @@ export default function SubscriptionDashboard() {
             link.parentNode?.removeChild(link);
         } catch (error) {
             toast.error(t("common.error"));
+        }
+    };
+
+    const handleResendEmail = async (invoiceId: string) => {
+        setResendingId(invoiceId);
+        try {
+            const res = await axiosInstance.post(`/api/subscriptions/invoices/${invoiceId}/resend-email`);
+            toast.success(res.data.message || t("billing.email.sent"));
+            setInvoices((list) => list.map((inv) => (inv._id === invoiceId ? { ...inv, email_status: res.data.email_status } : inv)));
+        } catch (error: any) {
+            toast.error(error.response?.data?.message || t("common.error"));
+        } finally {
+            setResendingId(null);
         }
     };
 
@@ -298,6 +312,20 @@ export default function SubscriptionDashboard() {
                                                         {formatDate(inv.createdAt)} · {t(`billing.payment.${inv.status}` as any)} · {inv.payment_method || 'Razorpay'}
                                                     </p>
                                                     <p className="break-all text-xs text-gray-400 font-mono mt-1">{inv.plan && `${t(`plan.${inv.plan}` as any)} · `}{inv.transaction_id || inv.razorpay_payment_id}</p>
+                                                    {inv.email_status && (
+                                                        <p className={`mt-1 flex items-center gap-2 text-xs ${inv.email_status === "sent" ? "text-green-700" : inv.email_status === "failed" ? "text-red-600" : "text-amber-600"}`}>
+                                                            {inv.email_status === "sent" ? <CheckCircle className="h-3.5 w-3.5" /> : <Mail className="h-3.5 w-3.5" />}
+                                                            {t(`billing.email.${inv.email_status}` as any)}
+                                                            <button
+                                                                type="button"
+                                                                disabled={resendingId === inv._id}
+                                                                onClick={() => handleResendEmail(inv._id)}
+                                                                className="font-medium text-orange-600 hover:underline disabled:opacity-50"
+                                                            >
+                                                                {resendingId === inv._id ? t("common.sending") : t("billing.email.resend")}
+                                                            </button>
+                                                        </p>
+                                                    )}
                                                 </div>
                                                 <div className="flex items-center space-x-4">
                                                     <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">

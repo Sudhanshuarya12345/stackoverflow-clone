@@ -42,3 +42,5 @@ coverage/
 .tmp/
 
 *.md
+*.txt
+*.docx

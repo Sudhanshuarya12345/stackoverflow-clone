@@ -5,6 +5,10 @@ const trustedDeviceSchema = mongoose.Schema(
     user: { type: mongoose.Schema.Types.ObjectId, ref: "user", required: true, index: true },
     deviceHash: { type: String, required: true },
     label: { type: String },
+    // Stored separately so the UI can describe the device in the viewer's language.
+    browser: { type: String },
+    os: { type: String },
+    deviceType: { type: String },
     lastUsedAt: { type: Date, default: Date.now },
     expiresAt: { type: Date, required: true },
   },

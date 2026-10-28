@@ -24,6 +24,7 @@ const zh: Record<TranslationKey, string> = {
   "nav.admin": "管理",
   "nav.feed": "社区动态",
   "nav.goldCommunity": "黄金社区",
+  "nav.logoAlt": "Code-Quest 标志",
   "nav.home": "首页",
   "nav.login": "登录",
   "nav.loginActivity": "登录活动",
@@ -292,6 +293,8 @@ const zh: Record<TranslationKey, string> = {
   "q.voteFailed": "无法记录你的投票",
   "q.yourAnswer": "你的回答",
 
+  "feed.plainText": "纯文本",
+
   "feed.comment": "评论",
   "feed.commentPlaceholder": "添加评论或 @提及其他成员",
   "feed.commentRestricted": "声望达到 {min} 后即可评论其他成员的帖子。",
@@ -523,6 +526,10 @@ const zh: Record<TranslationKey, string> = {
   "billing.country": "国家/地区",
   "billing.details": "账单信息",
   "billing.email": "账单邮箱",
+  "billing.email.failed": "确认邮件无法送达",
+  "billing.email.pending": "确认邮件排队中，正在自动重试",
+  "billing.email.resend": "重新发送",
+  "billing.email.sent": "确认邮件已发送",
   "billing.expiresOn": "到期日",
   "billing.freeNote": "你当前是免费套餐。升级即可解锁更多提问次数、徽章和搜索特权。",
   "billing.gst": "GST 税号（可选）",

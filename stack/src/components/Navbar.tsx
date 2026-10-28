@@ -32,7 +32,7 @@ const Navbar = ({ handleslidein }: any) => {
         </button>
         <div className="flex min-w-0 items-center gap-2 flex-grow">
           <Link href="/" className="shrink-0 px-1 sm:px-3 py-1">
-            <img src="/logo.png" alt="Logo" className="h-6 w-auto" />
+            <img src="/logo.png" alt={t("nav.logoAlt")} className="h-6 w-auto" />
           </Link>
 
           <div className="hidden lg:flex gap-1">

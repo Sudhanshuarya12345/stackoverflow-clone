@@ -1,4 +1,5 @@
 import nodemailer from "nodemailer";
+import { emailText, formatDateFor, formatDateTimeFor } from "../i18n/index.js";
 
 const fromName = () => process.env.EMAIL_FROM_NAME || "StackOverflow Clone";
 const fromEmail = () => process.env.EMAIL_FROM || process.env.SMTP_USER;
@@ -110,69 +111,74 @@ const sendMail = async (message) => {
   }
 };
 
+// The email helpers below take the recipient's language (user.language) and fall back to English.
 export const sendSubscriptionEmail = async (toEmail, planName, invoiceNumber, pdfBuffer, details = {}) => {
+  const lang = details.lang;
+  const t = (key, vars) => emailText(lang, key, vars);
+  const features = (details.features || []).map((feature) => t(feature));
+  const periodEnd = details.periodEnd ? formatDateFor(lang, details.periodEnd, { dateStyle: "long" }) : "";
   return sendMail({
     to: toEmail,
-    subject: `Subscription Confirmation - ${planName} Plan`,
+    subject: t("sub.subject", { plan: planName }),
     text: [
-      `Thank you for subscribing to the ${planName} plan!`,
-      details.amount ? `Amount paid: ${details.amount}` : "",
-      details.periodEnd ? `Renews on: ${details.periodEnd}` : "",
-      details.features?.length ? `Included: ${details.features.join(", ")}` : "",
-      `Your invoice (${invoiceNumber}) is attached.`,
+      t("sub.thanks", { plan: planName }),
+      details.amount ? t("sub.amount", { amount: details.amount }) : "",
+      periodEnd ? t("sub.renews", { date: periodEnd }) : "",
+      features.length ? `${t("sub.included")} ${features.join(", ")}` : "",
+      t("sub.invoice", { invoice: invoiceNumber }),
     ].filter(Boolean).join("\n"),
-    html: `<p>Thank you for subscribing to the <strong>${planName}</strong> plan!</p>
-        ${details.amount ? `<p>Amount paid: <strong>${details.amount}</strong></p>` : ""}
-        ${details.periodEnd ? `<p>Renews on: <strong>${details.periodEnd}</strong></p>` : ""}
-        ${details.features?.length ? `<p>Included in your plan:</p><ul>${details.features.map((f) => `<li>${f}</li>`).join("")}</ul>` : ""}
-        <p>Your invoice (${invoiceNumber}) is attached to this email.</p>`,
+    html: `<p>${t("sub.thanks", { plan: `<strong>${escapeHtml(planName)}</strong>` })}</p>
+        ${details.amount ? `<p>${t("sub.amount", { amount: `<strong>${escapeHtml(details.amount)}</strong>` })}</p>` : ""}
+        ${periodEnd ? `<p>${t("sub.renews", { date: `<strong>${escapeHtml(periodEnd)}</strong>` })}</p>` : ""}
+        ${features.length ? `<p>${t("sub.included")}</p><ul>${features.map((f) => `<li>${escapeHtml(f)}</li>`).join("")}</ul>` : ""}
+        <p>${t("sub.invoice", { invoice: escapeHtml(invoiceNumber) })}</p>`,
     attachments: [{ filename: `${invoiceNumber}.pdf`, content: pdfBuffer, contentType: "application/pdf" }],
   });
 };
 
-export const sendPasswordResetEmail = async (toEmail, password) => {
+export const sendPasswordResetEmail = async (toEmail, password, lang) => {
+  const t = (key, vars) => emailText(lang, key, vars);
   return sendMail({
     to: toEmail,
-    subject: "Your password has been reset",
-    text: `Your new password is: ${password}\nPlease log in with this password and change it after logging in.`,
-    html: `<p>Your new password is: <strong>${password}</strong></p><p>Please log in with this password and change it after logging in.</p>`,
+    subject: t("reset.subject"),
+    text: `${t("reset.password", { password })}\n${t("reset.change")}`,
+    html: `<p>${t("reset.password", { password: `<strong>${escapeHtml(password)}</strong>` })}</p><p>${t("reset.change")}</p>`,
   });
 };
 
 const escapeHtml = (value = "") =>
   String(value).replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
 
-const OTP_PURPOSE_TEXT = {
-  login: "verify a login from a new device",
-  language: "confirm your language change",
-  reset: "reset your password",
-};
+export const otpPurposeText = (purpose, lang) =>
+  emailText(lang, ["login", "language", "reset"].includes(purpose) ? `otp.purpose.${purpose}` : "otp.purpose.default");
 
-export const sendOtpEmail = async (toEmail, code, purpose) => {
-  const action = OTP_PURPOSE_TEXT[purpose] || "verify your request";
+export const sendOtpEmail = async (toEmail, code, purpose, lang) => {
+  const t = (key, vars) => emailText(lang, key, vars);
+  const action = otpPurposeText(purpose, lang);
   return sendMail({
     to: toEmail,
-    subject: `Your verification code: ${code}`,
-    text: `Use ${code} to ${action}. The code expires in 10 minutes. If this wasn't you, ignore this email and change your password.`,
-    html: `<p>Use <strong style="font-size:18px;letter-spacing:2px">${code}</strong> to ${action}.</p><p>The code expires in 10 minutes. If this wasn't you, ignore this email and change your password.</p>`,
+    subject: t("otp.subject", { code }),
+    text: `${t("otp.use", { code, action })} ${t("otp.expires")}`,
+    html: `<p>${t("otp.use", { code: `<strong style="font-size:18px;letter-spacing:2px">${code}</strong>`, action })}</p><p>${t("otp.expires")}</p>`,
   });
 };
 
-export const sendNewDeviceLoginEmail = async (toEmail, info) => {
+export const sendNewDeviceLoginEmail = async (toEmail, info, lang) => {
+  const t = (key, vars) => emailText(lang, key, vars);
   const rows = [
-    ["Browser", info.browser],
-    ["Operating system", info.os],
-    ["Device type", info.deviceType],
-    ["IP address", info.ip || "Unknown"],
-    ["Location", info.location || "Unknown"],
-    ["Time", new Date().toUTCString()],
+    [t("device.browser"), info.browser],
+    [t("device.os"), info.os],
+    [t("device.type"), info.deviceType],
+    [t("device.ip"), info.ip || t("device.unknown")],
+    [t("device.location"), info.location || t("device.unknown")],
+    [t("device.time"), formatDateTimeFor(lang, new Date())],
   ];
   return sendMail({
     to: toEmail,
-    subject: "New device login to your account",
-    text: `A new device just signed in to your account.\n${rows.map(([k, v]) => `${k}: ${v}`).join("\n")}\nIf this wasn't you, revoke the session from your security settings and change your password.`,
-    html: `<p>A new device just signed in to your account.</p><table>${rows
+    subject: t("device.subject"),
+    text: `${t("device.intro")}\n${rows.map(([k, v]) => `${k}: ${v}`).join("\n")}\n${t("device.warning")}`,
+    html: `<p>${t("device.intro")}</p><table>${rows
       .map(([k, v]) => `<tr><td style="padding-right:12px;color:#555">${k}</td><td><strong>${escapeHtml(v)}</strong></td></tr>`)
-      .join("")}</table><p>If this wasn't you, revoke the session from your security settings and change your password.</p>`,
+      .join("")}</table><p>${t("device.warning")}</p>`,
   });
 };

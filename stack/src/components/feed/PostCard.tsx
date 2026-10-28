@@ -180,7 +180,7 @@ export default function PostCard({
         {post.code?.code && (
           <div className="mt-4 overflow-hidden rounded-xl border border-slate-800 bg-slate-950">
             <div className="flex items-center gap-2 border-b border-slate-800 px-3 py-2 text-xs text-slate-300">
-              <Code2 className="h-4 w-4" /> {post.code.language || "text"}
+              <Code2 className="h-4 w-4" /> {post.code.language || t("feed.plainText")}
             </div>
             <pre className="overflow-x-auto p-4 text-sm text-slate-100">
               <code>{post.code.code}</code>

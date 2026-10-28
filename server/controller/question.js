@@ -201,7 +201,7 @@ export const getallquestion = async (req, res) => {
     res.status(200).json({ data, total, page, limit, totalPages: Math.ceil(total / limit) });
   } catch (error) {
     console.log(error);
-    res.status(500).json("something went wrong..");
+    res.status(500).json({ message: "Something went wrong. Please try again later." });
     return;
   }
 };

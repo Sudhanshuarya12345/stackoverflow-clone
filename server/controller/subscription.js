@@ -6,7 +6,7 @@ import User from "../models/auth.js";
 import { PLANS } from "../config/plans.js";
 import { generateInvoicePdfBuffer } from "../utils/invoicePdf.js";
 import { refreshUserPlanFromSubscription } from "../services/subscriptionAccess.js";
-import { syncPaymentsFromRazorpay } from "../services/subscriptionBilling.js";
+import { deliverInvoiceEmail, invoiceEmailStatus, retryPendingInvoiceEmails, syncPaymentsFromRazorpay } from "../services/subscriptionBilling.js";
 
 // Utility to get Razorpay instance lazily
 const getRazorpayInstance = () => {
@@ -105,7 +105,8 @@ export const getMyInvoices = async (req, res) => {
       Payment.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit),
       Payment.countDocuments(filter),
     ]);
-    res.status(200).json({ invoices: payments, pagination: { page, limit, total, pages: Math.ceil(total / limit) } });
+    const invoices = payments.map((p) => ({ ...p.toObject(), email_status: invoiceEmailStatus(p) }));
+    res.status(200).json({ invoices, pagination: { page, limit, total, pages: Math.ceil(total / limit) } });
   } catch (error) {
     console.error("Error getting invoices:", error);
     res.status(500).json({ message: "Could not fetch invoices" });
@@ -129,17 +130,38 @@ export const downloadInvoice = async (req, res) => {
       return res.status(404).json({ message: "Invoice not found" });
     }
 
-    const user = await User.findById(req.userid);
-    const planName = payment.subscriptionId ? payment.subscriptionId.plan : "Premium";
-    
-    const buffer = await generateInvoicePdfBuffer(payment, user, { name: planName.toUpperCase() });
-    
+    // Serve the invoice exactly as it was issued; invoices recorded before PDFs were stored are rendered now.
+    const stored = await Payment.findById(payment._id).select("+invoice_pdf");
+    let buffer = stored?.invoice_pdf;
+    if (!buffer?.length) {
+      const user = await User.findById(req.userid);
+      const planName = payment.subscriptionId ? payment.subscriptionId.plan : "Premium";
+      buffer = await generateInvoicePdfBuffer(payment, user, { name: planName.toUpperCase() });
+    }
+
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename=${payment.invoice_number}.pdf`);
     res.status(200).send(buffer);
   } catch (error) {
     console.error("Error downloading invoice:", error);
     res.status(500).json({ message: "Could not generate invoice PDF" });
+  }
+};
+
+export const resendInvoiceEmail = async (req, res) => {
+  try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) return res.status(404).json({ message: "Invoice not found" });
+    const payment = await Payment.findOne({ _id: req.params.id, userId: req.userid, status: "captured" }).select("_id");
+    if (!payment) return res.status(404).json({ message: "Invoice not found" });
+    const sent = await deliverInvoiceEmail(payment._id, { resend: true, userId: req.userid });
+    const updated = await Payment.findById(payment._id);
+    if (!sent) {
+      return res.status(503).json({ message: "We could not send the email right now. Please try again in a few minutes.", email_status: invoiceEmailStatus(updated) });
+    }
+    res.status(200).json({ message: "Confirmation email sent.", email_status: invoiceEmailStatus(updated) });
+  } catch (error) {
+    console.error("Error resending invoice email:", error);
+    res.status(500).json({ message: "Could not resend the confirmation email" });
   }
 };
 
@@ -171,6 +193,10 @@ export const reconcileMySubscription = async (req, res) => {
         console.error("Could not sync Razorpay payments:", syncError.message);
       }
     }
+    // Finish any confirmation email that could not be delivered when the payment was recorded.
+    await retryPendingInvoiceEmails({ userId: req.userid }).catch((emailError) =>
+      console.error("Could not retry invoice emails:", emailError.message)
+    );
     const userState = await refreshUserPlanFromSubscription(req.userid);
     res.status(200).json({ subscription: updated, userPlanDetails: userState });
   } catch (error) {

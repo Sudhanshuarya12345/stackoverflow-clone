@@ -5,6 +5,7 @@ import bcrypt from "bcryptjs";
 import { BADGES } from "../config/badges.js";
 import { sendTextSms, smsSupportsText } from "../utils/sms.js";
 import { sendNewDeviceLoginEmail, sendPasswordResetEmail } from "../utils/mailer.js";
+import { emailText } from "../i18n/index.js";
 import { getRequestDevice } from "../services/deviceInfo.js";
 import { createSession, hasSeenDevice, isTrustedDevice, revokeUserSessions, trustDevice } from "../services/sessionService.js";
 import { formatPhoneForSms, issueOtp, maskEmail, maskPhone, normalizePhone, resendOtp, verifyOtp } from "../services/otpService.js";
@@ -75,7 +76,7 @@ const completeLogin = async (res, account, device, { method, remember, emailVeri
   if (remember) await trustDevice(account._id, device);
   const { token } = await createSession(account, device, { method, newDevice });
   if (newDevice && method !== "signup") {
-    sendNewDeviceLoginEmail(account.email, device).catch((error) => console.error("New device email failed:", error.message));
+    sendNewDeviceLoginEmail(account.email, device, account.language).catch((error) => console.error("New device email failed:", error.message));
   }
   res.status(200).json({ data: toSelf(account), token });
 };
@@ -346,16 +347,16 @@ export const forgotPassword = async (req, res) => {
     let delivered = false;
     let fallbackUsed = false;
     if (isEmailReset) {
-      delivered = await sendPasswordResetEmail(account.email, newPassword);
+      delivered = await sendPasswordResetEmail(account.email, newPassword, account.language);
     } else if (account.phone) {
       try {
-        await sendTextSms(formatPhoneForSms(account.phone), `Your new password is: ${newPassword}`);
+        await sendTextSms(formatPhoneForSms(account.phone), emailText(account.language, "reset.password", { password: newPassword }));
         delivered = true;
       } catch (smsError) {
         console.error("SMS delivery failed, falling back to email:", smsError.message);
         if (account.email) {
           fallbackUsed = true;
-          delivered = await sendPasswordResetEmail(account.email, newPassword);
+          delivered = await sendPasswordResetEmail(account.email, newPassword, account.language);
         }
       }
     }

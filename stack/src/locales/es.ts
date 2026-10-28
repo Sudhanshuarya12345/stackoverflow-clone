@@ -24,6 +24,7 @@ const es: Record<TranslationKey, string> = {
   "nav.admin": "Administración",
   "nav.feed": "Comunidad",
   "nav.goldCommunity": "Comunidad Gold",
+  "nav.logoAlt": "Logotipo de Code-Quest",
   "nav.home": "Inicio",
   "nav.login": "Iniciar sesión",
   "nav.loginActivity": "Actividad de acceso",
@@ -292,6 +293,8 @@ const es: Record<TranslationKey, string> = {
   "q.voteFailed": "No se pudo registrar tu voto",
   "q.yourAnswer": "Tu respuesta",
 
+  "feed.plainText": "Texto sin formato",
+
   "feed.comment": "Comentar",
   "feed.commentPlaceholder": "Añade un comentario o @menciona a otro miembro",
   "feed.commentRestricted": "Podrás comentar publicaciones de otros miembros cuando alcances {min} de reputación.",
@@ -523,6 +526,10 @@ const es: Record<TranslationKey, string> = {
   "billing.country": "País",
   "billing.details": "Datos de facturación",
   "billing.email": "Correo de facturación",
+  "billing.email.failed": "No se pudo entregar el correo de confirmación",
+  "billing.email.pending": "Correo de confirmación en cola, reintentando automáticamente",
+  "billing.email.resend": "Reenviar",
+  "billing.email.sent": "Confirmación enviada por correo",
   "billing.expiresOn": "Caduca el",
   "billing.freeNote": "Actualmente estás en el plan Gratis. Mejora para desbloquear más preguntas, insignias y ventajas de búsqueda.",
   "billing.gst": "Número GST (opcional)",
