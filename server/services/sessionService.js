@@ -68,10 +68,10 @@ export const validateSession = async (userId, tokenId) => {
   return session;
 };
 
-export const revokeUserSessions = async (userId, reason, exceptSessionId) => {
+export const revokeUserSessions = async (userId, reason, exceptSessionId, { session } = {}) => {
   const filter = { user: userId, revokedAt: { $exists: false } };
   if (exceptSessionId) filter._id = { $ne: exceptSessionId };
-  const result = await Session.updateMany(filter, { revokedAt: new Date(), revokedReason: reason });
+  const result = await Session.updateMany(filter, { revokedAt: new Date(), revokedReason: reason }, { session });
   return result.modifiedCount;
 };
 

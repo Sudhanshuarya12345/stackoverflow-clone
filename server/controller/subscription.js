@@ -5,16 +5,24 @@ import Payment from "../models/Payment.js";
 import User from "../models/auth.js";
 import { PLANS } from "../config/plans.js";
 import { generateInvoicePdfBuffer } from "../utils/invoicePdf.js";
-import { refreshUserPlanFromSubscription } from "../services/subscriptionAccess.js";
-import { deliverInvoiceEmail, invoiceEmailStatus, retryPendingInvoiceEmails, syncPaymentsFromRazorpay } from "../services/subscriptionBilling.js";
+import { endSubscription, refreshUserPlanFromSubscription } from "../services/subscriptionAccess.js";
+import {
+  deliverInvoiceEmail,
+  invoiceEmailStatus,
+  localStatusFromRazorpay,
+  retryPendingInvoiceEmails,
+  syncPaymentsFromRazorpay,
+} from "../services/subscriptionBilling.js";
 
-// Utility to get Razorpay instance lazily
-const getRazorpayInstance = () => {
-  return new Razorpay({
-    key_id: process.env.RAZORPAY_KEY_ID,
-    key_secret: process.env.RAZORPAY_KEY_SECRET,
-  });
+// Creates the Razorpay client lazily. Kept on an object so integration tests can substitute a fake client.
+export const razorpayClient = {
+  create: () =>
+    new Razorpay({
+      key_id: process.env.RAZORPAY_KEY_ID,
+      key_secret: process.env.RAZORPAY_KEY_SECRET,
+    }),
 };
+const getRazorpayInstance = () => razorpayClient.create();
 
 export const createSubscription = async (req, res) => {
   try {
@@ -34,9 +42,13 @@ export const createSubscription = async (req, res) => {
     if (existingSub?.status === "created" && existingSub.razorpay_subscription_id) {
       // Checkout was opened but not paid (e.g. the popup was closed). Confirm with Razorpay before replacing it.
       const remote = await rzp.subscriptions.fetch(existingSub.razorpay_subscription_id).catch(() => null);
-      if (remote && remote.status !== "created") {
-        existingSub.status = remote.status;
+      if (remote && ["authenticated", "active", "pending"].includes(remote.status)) {
+        // Paid after all: record it through the confirmation workflow rather than copying Razorpay's status.
+        existingSub.status = localStatusFromRazorpay(remote.status, existingSub);
         await existingSub.save();
+        await syncPaymentsFromRazorpay(rzp, existingSub).catch((syncError) =>
+          console.error("Could not sync Razorpay payments:", syncError.message)
+        );
         await refreshUserPlanFromSubscription(req.userid);
         return res.status(409).json({ message: "Your previous payment is still being confirmed. Please check your billing dashboard in a minute." });
       }
@@ -175,17 +187,16 @@ export const reconcileMySubscription = async (req, res) => {
 
     const rzp = getRazorpayInstance();
     const remoteSub = await rzp.subscriptions.fetch(sub.razorpay_subscription_id);
-    const updates = { status: remoteSub.status };
-    if (remoteSub.current_start) updates.current_period_start = new Date(remoteSub.current_start * 1000);
-    if (remoteSub.current_end) updates.current_period_end = new Date(remoteSub.current_end * 1000);
-
-    if (["cancelled", "completed", "halted"].includes(remoteSub.status) && sub.current_period_end && new Date(sub.current_period_end) > new Date()) {
-      updates.status = "cancellation_pending";
-      updates.cancel_at_period_end = true;
-      updates.cancelled_at = new Date();
+    let updated;
+    if (["cancelled", "completed", "halted"].includes(remoteSub.status)) {
+      updated = await endSubscription(sub._id, remoteSub.status, remoteSub.current_end ? new Date(remoteSub.current_end * 1000) : undefined);
+    } else {
+      // Activation is left to syncPaymentsFromRazorpay below, so the plan is never unlocked without an invoice.
+      const updates = { status: localStatusFromRazorpay(remoteSub.status, sub) };
+      if (remoteSub.current_start) updates.current_period_start = new Date(remoteSub.current_start * 1000);
+      if (remoteSub.current_end) updates.current_period_end = new Date(remoteSub.current_end * 1000);
+      updated = await Subscription.findByIdAndUpdate(sub._id, updates, { new: true });
     }
-
-    let updated = await Subscription.findByIdAndUpdate(sub._id, updates, { new: true });
     if (["authenticated", "active", "pending"].includes(remoteSub.status)) {
       try {
         if (await syncPaymentsFromRazorpay(rzp, updated)) updated = await Subscription.findById(sub._id);

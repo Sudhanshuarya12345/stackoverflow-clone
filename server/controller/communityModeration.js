@@ -1,4 +1,5 @@
 import CommunityPost from "../models/CommunityPost.js";
+import { runInTransaction } from "../services/transaction.js";
 import Report from "../models/Report.js";
 import User from "../models/auth.js";
 import { penalizeRemovedContent } from "../services/reputationService.js";
@@ -36,27 +37,41 @@ export const reviewReport = async (req, res) => {
   try {
     const { action } = req.body;
     if (!["dismiss", "remove"].includes(action)) return res.status(400).json({ message: "Choose dismiss or remove" });
-    const report = await Report.findById(req.params.id);
-    if (!report) return res.status(404).json({ message: "Report not found" });
-    if (report.status !== "pending") return res.status(400).json({ message: "This report was already reviewed" });
-    let authorSuspended = false;
-    if (action === "remove") {
-      // Only the first removal of a post penalises the author, even if several reports point at it.
-      const post = await CommunityPost.findOneAndUpdate({ _id: report.postId, status: "active" }, { status: "removed" });
-      if (post) {
-        const result = await penalizeRemovedContent(post.author, req.userid, "Community post removed by an administrator for violating guidelines", { postId: post._id });
-        authorSuspended = result.suspended;
-      }
-      await Report.updateMany(
-        { postId: report.postId, status: "pending", _id: { $ne: report._id } },
-        { status: "removed", reviewedBy: req.userid, reviewedAt: new Date() }
+    const existing = await Report.findById(req.params.id).select("_id");
+    if (!existing) return res.status(404).json({ message: "Report not found" });
+    // Closing the report, removing the post, the author's penalty/suspension and closing duplicate reports commit
+    // together. The report is claimed conditionally, so two admins cannot review (and penalise) it twice.
+    const result = await runInTransaction(async (session) => {
+      const report = await Report.findOneAndUpdate(
+        { _id: req.params.id, status: "pending" },
+        { status: action === "remove" ? "removed" : "dismissed", reviewedBy: req.userid, reviewedAt: new Date() },
+        { new: true, session }
       );
-    }
-    report.status = action === "remove" ? "removed" : "dismissed";
-    report.reviewedBy = req.userid;
-    report.reviewedAt = new Date();
-    await report.save();
-    res.status(200).json({ data: report, authorSuspended });
+      if (!report) return null;
+      let authorSuspended = false;
+      if (action === "remove") {
+        // Only the first removal of a post penalises the author, even if several reports point at it.
+        const post = await CommunityPost.findOneAndUpdate({ _id: report.postId, status: "active" }, { status: "removed" }, { session });
+        if (post) {
+          const penalty = await penalizeRemovedContent(
+            post.author,
+            req.userid,
+            "Community post removed by an administrator for violating guidelines",
+            { postId: post._id },
+            { session }
+          );
+          authorSuspended = penalty.suspended;
+        }
+        await Report.updateMany(
+          { postId: report.postId, status: "pending", _id: { $ne: report._id } },
+          { status: "removed", reviewedBy: req.userid, reviewedAt: new Date() },
+          { session }
+        );
+      }
+      return { report, authorSuspended };
+    });
+    if (!result) return res.status(400).json({ message: "This report was already reviewed" });
+    res.status(200).json({ data: result.report, authorSuspended: result.authorSuspended });
   } catch (error) {
     console.log(error);
     res.status(500).json({ message: "Could not review report" });

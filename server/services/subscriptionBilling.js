@@ -103,9 +103,9 @@ export const recordSubscriptionPayment = async (sub, payment, { periodStart, per
   return { created: true, payment: newPayment };
 };
 
-const MAX_AUTOMATIC_EMAIL_ATTEMPTS = 10;
+// Attempts are spaced 1 min, 2 min, 4 min ... then every 6 h, so 15 attempts cover a mail outage of ~1.5 days.
+const MAX_AUTOMATIC_EMAIL_ATTEMPTS = 15;
 const INVOICE_EMAIL_LEASE_MS = 2 * 60 * 1000;
-// 1 min, 2 min, 4 min ... capped at 6 h, so a mail outage of more than a day is covered automatically.
 const retryDelayMs = (attempts) => Math.min(60 * 1000 * 2 ** Math.max(0, attempts - 1), 6 * 60 * 60 * 1000);
 
 export const invoiceEmailStatus = (payment) => {
@@ -194,6 +194,14 @@ export const retryPendingInvoiceEmails = async ({ userId, limit = 25 } = {}) => 
     if (await deliverInvoiceEmail(_id)) delivered += 1;
   }
   return delivered;
+};
+
+// Maps a status reported by Razorpay to the one stored locally. "active" is never copied: a subscription becomes
+// active only inside recordSubscriptionPayment, together with the payment record and the issued invoice. Until
+// that has committed, a subscription Razorpay already charged waits as "authenticated".
+export const localStatusFromRazorpay = (remoteStatus, localSub) => {
+  if (remoteStatus !== "active") return remoteStatus;
+  return ["active", "cancellation_pending"].includes(localSub?.status) ? localSub.status : "authenticated";
 };
 
 // Pulls the subscription's paid invoices straight from Razorpay and records any payment we have not seen yet.

@@ -17,6 +17,8 @@ const { default: ReputationLog } = await import("../models/ReputationLog.js");
 const { default: ReputationTransfer } = await import("../models/ReputationTransfer.js");
 const { recordSubscriptionPayment, invoiceEmailStatus } = await import("../services/subscriptionBilling.js");
 const { transferReputation } = await import("../controller/reputation.js");
+const { reconcileMySubscription, razorpayClient } = await import("../controller/subscription.js");
+const { endSubscription, expireDueSubscriptions, refreshUserPlanFromSubscription } = await import("../services/subscriptionAccess.js");
 
 let replSet;
 before(async () => {
@@ -98,6 +100,132 @@ describe("subscription activation", () => {
     await assert.rejects(recordSubscriptionPayment(sub, payment), { code: "PLAN_MISMATCH" });
     assert.equal((await Subscription.findById(sub._id)).status, "created");
     assert.equal(await Payment.countDocuments(), 0);
+  });
+});
+
+const callReconcile = async (userid) => {
+  const res = { statusCode: 200, body: undefined };
+  res.status = (code) => ((res.statusCode = code), res);
+  res.json = (data) => ((res.body = data), res);
+  await reconcileMySubscription({ userid: String(userid) }, res);
+  return res;
+};
+
+const DAY = 24 * 60 * 60 * 1000;
+const unix = (date) => Math.floor(date.getTime() / 1000);
+
+// Razorpay reports the subscription as active and charged; `syncFails` simulates the payment sync breaking.
+const fakeRazorpay = ({ status = "active", syncFails = false } = {}) => {
+  const start = new Date();
+  const end = new Date(Date.now() + 30 * DAY);
+  return {
+    subscriptions: { fetch: async () => ({ status, current_start: unix(start), current_end: unix(end) }) },
+    invoices: {
+      all: async () => {
+        if (syncFails) throw new Error("simulated Razorpay outage");
+        return { items: [{ status: "paid", payment_id: "pay_R1", billing_start: unix(start), billing_end: unix(end) }] };
+      },
+    },
+    payments: { fetch: async () => ({ id: "pay_R1", status: "captured", amount: 9900, currency: "INR", method: "upi" }) },
+  };
+};
+
+describe("plan access requires the completed confirmation workflow", () => {
+  const originalCreate = razorpayClient.create;
+  const useRazorpay = (client) => (razorpayClient.create = () => client);
+  beforeEach(() => (razorpayClient.create = originalCreate));
+
+  test("an 'active' subscription without an issued invoice does not unlock the plan", async () => {
+    const user = await makeUser("buyer", { plan: "bronze" });
+    const sub = await Subscription.create({
+      userId: user._id,
+      plan: "bronze",
+      razorpay_subscription_id: "sub_1",
+      status: "active",
+      current_period_end: new Date(Date.now() + 30 * DAY),
+    });
+    await User.updateOne({ _id: user._id }, { activeSubscriptionId: sub._id });
+
+    const { plan } = await refreshUserPlanFromSubscription(user._id);
+
+    assert.equal(plan, "free");
+    assert.equal((await User.findById(user._id)).plan, "free");
+  });
+
+  test("reconcile does not activate when Razorpay says active but the payment cannot be recorded", async () => {
+    const user = await makeUser("buyer");
+    const sub = await Subscription.create({ userId: user._id, plan: "bronze", razorpay_subscription_id: "sub_1" });
+    useRazorpay(fakeRazorpay({ syncFails: true }));
+
+    const res = await callReconcile(user._id);
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.userPlanDetails.plan, "free");
+    assert.equal((await Subscription.findById(sub._id)).status, "authenticated", "waits for the invoice instead of copying 'active'");
+    assert.equal((await User.findById(user._id)).plan, "free");
+    assert.equal(await Payment.countDocuments(), 0);
+  });
+
+  test("reconcile activates through the invoice workflow once the payment can be recorded", async () => {
+    const user = await makeUser("buyer");
+    const sub = await Subscription.create({ userId: user._id, plan: "bronze", razorpay_subscription_id: "sub_1" });
+    useRazorpay(fakeRazorpay({ syncFails: true }));
+    await callReconcile(user._id);
+    useRazorpay(fakeRazorpay());
+
+    const res = await callReconcile(user._id);
+
+    assert.equal(res.body.userPlanDetails.plan, "bronze");
+    assert.equal((await Subscription.findById(sub._id)).status, "active");
+    const stored = await Payment.findOne({ razorpay_payment_id: "pay_R1" }).select("+invoice_pdf");
+    assert.ok(stored.invoice_number);
+    assert.equal(stored.invoice_pdf.subarray(0, 4).toString(), "%PDF");
+    assert.ok(stored.invoice_email_attempts >= 1, "confirmation email was attempted and stays queued");
+  });
+
+  test("reconcile keeps a cancellation scheduled while Razorpay still reports the subscription active", async () => {
+    const user = await makeUser("buyer");
+    const sub = await Subscription.create({ userId: user._id, plan: "bronze", razorpay_subscription_id: "sub_1" });
+    await recordSubscriptionPayment(sub, { id: "pay_R1", amount: 9900, currency: "INR", method: "upi" }, {
+      periodEnd: new Date(Date.now() + 30 * DAY),
+    });
+    await Subscription.updateOne({ _id: sub._id }, { status: "cancellation_pending", cancel_at_period_end: true });
+    useRazorpay(fakeRazorpay());
+
+    const res = await callReconcile(user._id);
+
+    assert.equal(res.body.subscription.status, "cancellation_pending");
+    assert.equal(res.body.userPlanDetails.plan, "bronze");
+  });
+
+  test("a cancelled webhook ends an unpaid subscription and keeps a paid one until its period ends", async () => {
+    const payer = await makeUser("payer");
+    const paid = await Subscription.create({ userId: payer._id, plan: "bronze", razorpay_subscription_id: "sub_paid" });
+    const periodEnd = new Date(Date.now() + 30 * DAY);
+    await recordSubscriptionPayment(paid, { id: "pay_P1", amount: 9900, currency: "INR", method: "card" }, { periodEnd });
+    const visitor = await makeUser("visitor");
+    const unpaid = await Subscription.create({ userId: visitor._id, plan: "bronze", razorpay_subscription_id: "sub_unpaid" });
+
+    await endSubscription(paid._id, "cancelled", periodEnd);
+    await endSubscription(unpaid._id, "cancelled", periodEnd);
+
+    assert.equal((await Subscription.findById(paid._id)).status, "cancellation_pending");
+    assert.equal((await User.findById(payer._id)).plan, "bronze");
+    assert.equal((await Subscription.findById(unpaid._id)).status, "cancelled");
+  });
+
+  test("expiry downgrades the plan together with the subscription", async () => {
+    const user = await makeUser("buyer");
+    const sub = await Subscription.create({ userId: user._id, plan: "bronze", razorpay_subscription_id: "sub_1" });
+    await recordSubscriptionPayment(sub, { id: "pay_E1", amount: 9900, currency: "INR", method: "card" }, {
+      periodEnd: new Date(Date.now() + 30 * DAY),
+    });
+    await Subscription.updateOne({ _id: sub._id }, { current_period_end: new Date(Date.now() - 1000) });
+
+    assert.equal(await expireDueSubscriptions(), 1);
+    assert.equal(await expireDueSubscriptions(), 0, "a second run is a no-op");
+    assert.equal((await Subscription.findById(sub._id)).status, "expired");
+    assert.equal((await User.findById(user._id)).plan, "free");
   });
 });
 

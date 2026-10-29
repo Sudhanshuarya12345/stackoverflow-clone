@@ -29,6 +29,8 @@ const paymentSchema = mongoose.Schema(
   { timestamps: true }
 );
 
+// Plan check: does this subscription have a captured payment with an issued invoice?
+paymentSchema.index({ subscriptionId: 1, status: 1 });
 paymentSchema.index({ status: 1, invoice_email_sent_at: 1, invoice_email_next_attempt_at: 1 });
 
 export default mongoose.model("Payment", paymentSchema);
