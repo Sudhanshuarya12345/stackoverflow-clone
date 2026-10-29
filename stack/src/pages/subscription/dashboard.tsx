@@ -25,6 +25,14 @@ export default function SubscriptionDashboard() {
         }
     }, [user]);
 
+    // Razorpay method codes ("card", "netbanking" ...) in the page language; unknown codes are shown as sent.
+    const paymentMethod = (method?: string) => {
+        if (!method) return "Razorpay";
+        const key = `billing.method.${method.toLowerCase()}`;
+        const label = t(key as any);
+        return label === key ? method : label;
+    };
+
     const fetchDashboardData = async () => {
         try {
             setLoading(true);
@@ -328,7 +336,7 @@ export default function SubscriptionDashboard() {
                                                 <div className="flex min-w-0 flex-col">
                                                     <p className="text-sm font-medium text-gray-900 truncate">{inv.invoice_number}</p>
                                                     <p className="text-sm text-gray-500 mt-1 flex items-center">
-                                                        {formatDate(inv.createdAt)} · {t(`billing.payment.${inv.status}` as any)} · {inv.payment_method || 'Razorpay'}
+                                                        {formatDate(inv.createdAt)} · {t(`billing.payment.${inv.status}` as any)} · {paymentMethod(inv.payment_method)}
                                                     </p>
                                                     <p className="break-all text-xs text-gray-400 font-mono mt-1">{inv.plan && `${t(`plan.${inv.plan}` as any)} · `}{inv.transaction_id || inv.razorpay_payment_id}</p>
                                                     {inv.email_status && (
