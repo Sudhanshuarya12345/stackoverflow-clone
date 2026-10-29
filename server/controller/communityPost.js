@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { runInTransaction } from "../services/transaction.js";
 import CommunityPost from "../models/CommunityPost.js";
 import Follow from "../models/Follow.js";
 import User from "../models/auth.js";
@@ -244,11 +245,17 @@ export const deletePost = async (req, res) => {
     if (String(post.author) !== String(req.userid) && user?.role !== "admin") {
       return res.status(403).json({ message: "You cannot delete this post" });
     }
+    // Deleting the post and penalising an admin removal commit together; images are deleted only afterwards.
+    await runInTransaction(async (session) => {
+      const deleted = await CommunityPost.findByIdAndDelete(post._id, { session });
+      if (deleted && String(post.author) !== String(req.userid)) {
+        await penalizeRemovedContent(post.author, req.userid, "Community post removed by an administrator", {
+          postId: post._id,
+          detail: { key: "postRemoved" },
+        }, { session });
+      }
+    });
     await destroyImages(post.images);
-    await CommunityPost.findByIdAndDelete(post._id);
-    if (String(post.author) !== String(req.userid)) {
-      await penalizeRemovedContent(post.author, req.userid, "Community post removed by an administrator", { postId: post._id });
-    }
     res.status(200).json({ message: "Post deleted" });
   } catch (error) {
     console.log(error);

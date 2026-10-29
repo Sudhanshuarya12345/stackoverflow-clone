@@ -13,32 +13,38 @@ import {
   userHasPrivilege,
 } from "../services/reputationService.js";
 import ReputationLog from "../models/ReputationLog.js";
+import { abortWith, runInTransaction } from "../services/transaction.js";
 
 const BOUNTY_AMOUNTS = [50, 100, 200, 500];
 const BOUNTY_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
 
 // Gives an unawarded bounty's reputation back to the member who offered it.
-const refundBounty = async (bounty, questionId, title, reason) => {
+const refundBounty = async (bounty, questionId, title, reason, detailKey, session) => {
   if (!bounty?.amount || !bounty.startedBy) return;
   await changeReputation(bounty.startedBy, bounty.amount, {
     type: "bounty_refunded",
     reason: `${reason} on "${title}"`,
+    detail: { key: detailKey, vars: { title } },
     questionId,
+    session,
   });
 };
 
-// Expires due bounties and refunds them. Each bounty is claimed atomically, so it is refunded exactly once
-// even if the hourly job and a request handler expire it at the same time.
+// Expires due bounties and refunds them. Marking a bounty expired and refunding it commit in one transaction,
+// so it is refunded exactly once even if the hourly job and a request handler expire it at the same time.
 export const expireOldBounties = async (filter = {}) => {
   const due = await question
     .find({ ...filter, "bounty.status": "active", "bounty.expiresAt": { $lte: new Date() } })
     .select("_id");
   for (const { _id } of due) {
-    const expired = await question.findOneAndUpdate(
-      { _id, "bounty.status": "active", "bounty.expiresAt": { $lte: new Date() } },
-      { $set: { "bounty.status": "expired" } }
-    ).select("bounty questiontitle");
-    if (expired) await refundBounty(expired.bounty, _id, expired.questiontitle, "Bounty expired without an award");
+    await runInTransaction(async (session) => {
+      const expired = await question.findOneAndUpdate(
+        { _id, "bounty.status": "active", "bounty.expiresAt": { $lte: new Date() } },
+        { $set: { "bounty.status": "expired" } },
+        { session }
+      ).select("bounty questiontitle");
+      if (expired) await refundBounty(expired.bounty, _id, expired.questiontitle, "Bounty expired without an award", "bountyExpired", session);
+    });
   }
 };
 
@@ -298,89 +304,101 @@ export const startBounty = async (req, res) => {
       return res.status(409).json({ message: "This question already has an active bounty." });
     }
 
-    await User.updateOne({ _id: req.userid, reputation: { $exists: false } }, { $set: { reputation: 100 } });
-    const user = await User.findOneAndUpdate(
-      { _id: req.userid, reputation: { $gte: amount } },
-      { $inc: { reputation: -amount } },
-      { new: true }
-    ).select("reputation");
-    if (!user) {
-      return res.status(400).json({ message: "Not enough reputation to start this bounty." });
-    }
+    // The debit, the bounty and the history entry commit together: no lost points if a step fails.
+    const { user, updated } = await runInTransaction(async (session) => {
+      await User.updateOne({ _id: req.userid, reputation: { $exists: false } }, { $set: { reputation: 100 } }, { session });
+      const user = await User.findOneAndUpdate(
+        { _id: req.userid, reputation: { $gte: amount } },
+        { $inc: { reputation: -amount } },
+        { new: true, session }
+      ).select("reputation");
+      if (!user) throw abortWith(400, "Not enough reputation to start this bounty.");
 
-    const now = new Date();
-    const updated = await question.findOneAndUpdate(
-      {
-        _id: id,
-        $or: [
-          { "bounty.status": { $ne: "active" } },
-          { "bounty.status": { $exists: false } },
-          { "bounty.expiresAt": { $lte: now } },
-        ],
-      },
-      {
-        $set: {
-          bounty: {
-            amount,
-            status: "active",
-            startedBy: req.userid,
-            startedAt: now,
-            expiresAt: new Date(now.getTime() + BOUNTY_DURATION_MS),
+      const now = new Date();
+      const updated = await question.findOneAndUpdate(
+        {
+          _id: id,
+          $or: [
+            { "bounty.status": { $ne: "active" } },
+            { "bounty.status": { $exists: false } },
+            { "bounty.expiresAt": { $lte: now } },
+          ],
+        },
+        {
+          $set: {
+            bounty: {
+              amount,
+              status: "active",
+              startedBy: req.userid,
+              startedAt: now,
+              expiresAt: new Date(now.getTime() + BOUNTY_DURATION_MS),
+            },
           },
         },
-      },
-      { new: true }
-    );
-
-    if (!updated) {
-      await User.findByIdAndUpdate(req.userid, { $inc: { reputation: amount } });
-      return res.status(409).json({ message: "This question already has an active bounty." });
-    }
-    await ReputationLog.create({
-      user: req.userid,
-      delta: -amount,
-      type: "bounty_started",
-      reason: `Offered a bounty on "${updated.questiontitle}"`,
-      balanceAfter: user.reputation,
-      questionId: id,
+        { new: true, session }
+      );
+      // Another bounty was started meanwhile: aborting rolls the debit back.
+      if (!updated) throw abortWith(409, "This question already has an active bounty.");
+      await ReputationLog.create(
+        [
+          {
+            user: req.userid,
+            delta: -amount,
+            type: "bounty_started",
+            reason: `Offered a bounty on "${updated.questiontitle}"`,
+            detail: { key: "bountyStarted", vars: { title: updated.questiontitle } },
+            balanceAfter: user.reputation,
+            questionId: id,
+          },
+        ],
+        { session }
+      );
+      return { user, updated };
     });
 
     res.status(200).json({ data: updated, reputation: user.reputation });
   } catch (error) {
+    if (error.aborted) return res.status(error.status).json({ message: error.message });
     console.log(error);
     res.status(500).json({ message: "Could not start bounty" });
   }
 };
 
 // Marks answerId as accepted (or clears acceptance when answerId is null) and moves the +10 accordingly.
-const applyAcceptance = async (questionDoc, answerId, actorId) => {
+// Runs inside the caller's transaction; returns the user whose badges should be re-evaluated after commit.
+const applyAcceptance = async (questionDoc, answerId, actorId, session) => {
   const previous = questionDoc.answer.find((ans) => ans.isAccepted);
   const next = answerId ? questionDoc.answer.id(answerId) : null;
   questionDoc.answer.forEach((ans) => {
     ans.isAccepted = Boolean(next) && String(ans._id) === String(next._id);
   });
   questionDoc.acceptedAnswerId = next ? String(next._id) : undefined;
-  await questionDoc.save();
+  await questionDoc.save({ session });
 
   if (previous && (!next || String(previous._id) !== String(next._id)) && previous.userid !== questionDoc.userid) {
     await changeReputation(previous.userid, -REPUTATION_RULES.answerAccepted, {
       type: "accept_revoked",
       reason: `Answer on "${questionDoc.questiontitle}" is no longer accepted`,
+      detail: { key: "acceptRevoked", vars: { title: questionDoc.questiontitle } },
       actor: actorId,
       questionId: questionDoc._id,
       answerId: previous._id,
+      session,
     });
   }
   if (next && (!previous || String(previous._id) !== String(next._id)) && next.userid !== questionDoc.userid) {
     await changeReputation(next.userid, REPUTATION_RULES.answerAccepted, {
       type: "answer_accepted",
       reason: `Answer accepted on "${questionDoc.questiontitle}"`,
+      detail: { key: "answerAccepted", vars: { title: questionDoc.questiontitle } },
       actor: actorId,
       questionId: questionDoc._id,
       answerId: next._id,
+      session,
     });
-    await evaluateBadges(next.userid, "acceptedAnswers");
+    return next.userid;
   }
+  return null;
 };
 
 export const awardBounty = async (req, res) => {
@@ -409,38 +427,50 @@ export const awardBounty = async (req, res) => {
       return res.status(400).json({ message: "You cannot award a bounty to your own answer." });
     }
 
-    // Claim the bounty atomically so a double click cannot pay it out twice.
-    const claimed = await question.findOneAndUpdate(
-      { _id: id, "bounty.status": "active" },
-      {
-        $set: {
-          "bounty.status": "awarded",
-          "bounty.awardedToAnswerId": answerId,
-          "bounty.awardedToUserId": answer.userid,
-          "bounty.awardedAt": new Date(),
+    // Claiming the bounty, accepting the answer and paying the winner commit together. The claim is
+    // conditional, so a double click cannot pay the bounty out twice.
+    const acceptedUserId = await runInTransaction(async (session) => {
+      const claimed = await question.findOneAndUpdate(
+        { _id: id, "bounty.status": "active" },
+        {
+          $set: {
+            "bounty.status": "awarded",
+            "bounty.awardedToAnswerId": answerId,
+            "bounty.awardedToUserId": answer.userid,
+            "bounty.awardedAt": new Date(),
+          },
         },
-      },
-      { new: true }
-    );
-    if (!claimed) return res.status(409).json({ message: "This bounty was already awarded." });
-    // Only the question owner decides the accepted answer; a third-party bounty starter just awards the bounty.
-    const isOwner = String(questionDoc.userid) === String(req.userid);
-    if (isOwner && !claimed.answer.id(answerId)?.isAccepted) await applyAcceptance(claimed, answerId, req.userid);
+        { new: true, session }
+      );
+      if (!claimed) throw abortWith(409, "This bounty was already awarded.");
+      // Only the question owner decides the accepted answer; a third-party bounty starter just awards the bounty.
+      const isOwner = String(questionDoc.userid) === String(req.userid);
+      let accepted = null;
+      if (isOwner && !claimed.answer.id(answerId)?.isAccepted) accepted = await applyAcceptance(claimed, answerId, req.userid, session);
 
+      if (mongoose.Types.ObjectId.isValid(answer.userid)) {
+        await changeReputation(answer.userid, claimed.bounty.amount, {
+          type: "bounty_awarded",
+          reason: `Won a +${claimed.bounty.amount} bounty on "${questionDoc.questiontitle}"`,
+          detail: { key: "bountyAwarded", vars: { amount: claimed.bounty.amount, title: questionDoc.questiontitle } },
+          actor: req.userid,
+          questionId: id,
+          answerId,
+          session,
+        });
+      }
+      return accepted;
+    });
+
+    if (acceptedUserId) await evaluateBadges(acceptedUserId, "acceptedAnswers");
     if (mongoose.Types.ObjectId.isValid(answer.userid)) {
-      await changeReputation(answer.userid, questionDoc.bounty.amount, {
-        type: "bounty_awarded",
-        reason: `Won a +${questionDoc.bounty.amount} bounty on "${questionDoc.questiontitle}"`,
-        actor: req.userid,
-        questionId: id,
-        answerId,
-      });
       await evaluateBadges(answer.userid, "bountiesWon");
       await awardBadgeIfEarned(answer.userid, "reputation");
     }
 
     res.status(200).json({ data: await withPlans(await question.findById(id)) });
   } catch (error) {
+    if (error.aborted) return res.status(error.status).json({ message: error.message });
     console.log(error);
     res.status(500).json({ message: "Could not award bounty" });
   }
@@ -543,17 +573,21 @@ export const acceptAnswer = async (req, res) => {
     if (!mongoose.Types.ObjectId.isValid(id) || !mongoose.Types.ObjectId.isValid(answerId)) {
       return res.status(400).json({ message: "question or answer unavailable" });
     }
-    const questionDoc = await question.findById(id);
-    if (!questionDoc) return res.status(404).json({ message: "Question not found" });
-    if (String(questionDoc.userid) !== String(req.userid)) {
-      return res.status(403).json({ message: "Only the question owner can accept an answer" });
-    }
-    const target = questionDoc.answer.id(answerId);
-    if (!target) return res.status(404).json({ message: "Answer not found" });
-    // Clicking accept on the already-accepted answer un-accepts it.
-    await applyAcceptance(questionDoc, target.isAccepted ? null : answerId, req.userid);
+    // The acceptance and both reputation moves (-10 old answer, +10 new answer) commit together.
+    const { questionDoc, acceptedUserId } = await runInTransaction(async (session) => {
+      const questionDoc = await question.findById(id).session(session);
+      if (!questionDoc) throw abortWith(404, "Question not found");
+      if (String(questionDoc.userid) !== String(req.userid)) throw abortWith(403, "Only the question owner can accept an answer");
+      const target = questionDoc.answer.id(answerId);
+      if (!target) throw abortWith(404, "Answer not found");
+      // Clicking accept on the already-accepted answer un-accepts it.
+      const acceptedUserId = await applyAcceptance(questionDoc, target.isAccepted ? null : answerId, req.userid, session);
+      return { questionDoc, acceptedUserId };
+    });
+    if (acceptedUserId) await evaluateBadges(acceptedUserId, "acceptedAnswers");
     res.status(200).json({ data: await withPlans(questionDoc) });
   } catch (error) {
+    if (error.aborted) return res.status(error.status).json({ message: error.message });
     console.log(error);
     res.status(500).json({ message: "Could not accept answer" });
   }
@@ -574,14 +608,21 @@ export const deletequestion = async (req, res) => {
     if (!isOwner && !isAdmin) {
       return res.status(403).json({ message: "You can only delete your own questions" });
     }
-    const deleted = await question.findByIdAndDelete(_id);
-    // A bounty that can no longer be awarded goes back to whoever offered it.
-    if (deleted?.bounty?.status === "active") {
-      await refundBounty(deleted.bounty, _id, deleted.questiontitle, "Bounty returned because the question was deleted");
-    }
-    if (!isOwner && isAdmin) {
-      await penalizeRemovedContent(questionDoc.userid, req.userid, `Question "${questionDoc.questiontitle}" removed by an administrator`, { questionId: _id });
-    }
+    // Deleting the question, refunding its bounty and penalising removed content commit together.
+    await runInTransaction(async (session) => {
+      const deleted = await question.findByIdAndDelete(_id, { session });
+      if (!deleted) return;
+      // A bounty that can no longer be awarded goes back to whoever offered it.
+      if (deleted.bounty?.status === "active") {
+        await refundBounty(deleted.bounty, _id, deleted.questiontitle, "Bounty returned because the question was deleted", "bountyQuestionDeleted", session);
+      }
+      if (!isOwner && isAdmin) {
+        await penalizeRemovedContent(questionDoc.userid, req.userid, `Question "${questionDoc.questiontitle}" removed by an administrator`, {
+          questionId: _id,
+          detail: { key: "questionRemoved", vars: { title: questionDoc.questiontitle } },
+        }, { session });
+      }
+    });
     res.status(200).json({ message: "question deleted" });
   } catch (error) {
     console.log(error);
@@ -592,7 +633,7 @@ export const deletequestion = async (req, res) => {
 // Atomically toggles one voter's vote on a question (answerId omitted) or on one of its answers.
 // Every write is conditional on the voter's current state, so concurrent votes never overwrite each other
 // and a double click cannot apply the same reputation effect twice.
-const castVote = async (questionId, answerId, voterId, value) => {
+const castVote = async (questionId, answerId, voterId, value, session) => {
   const voter = String(voterId);
   const own = value === "upvote" ? "upvote" : "downvote";
   const other = own === "upvote" ? "downvote" : "upvote";
@@ -607,13 +648,13 @@ const castVote = async (questionId, answerId, voterId, value) => {
   let added = false;
   let removedOther = false;
   // Clicking the same vote again retracts it.
-  if (await question.findOneAndUpdate(filter(own, voter), { $pull: { [path(own)]: voter } })) {
+  if (await question.findOneAndUpdate(filter(own, voter), { $pull: { [path(own)]: voter } }, { session })) {
     removed = true;
   } else {
     const before = await question.findOneAndUpdate(filter(own, { $ne: voter }), {
       $addToSet: { [path(own)]: voter },
       $pull: { [path(other)]: voter },
-    });
+    }, { session });
     if (!before) return null;
     added = true;
     removedOther = (votesOf(before)?.[other] || []).includes(voter);
@@ -627,20 +668,24 @@ const castVote = async (questionId, answerId, voterId, value) => {
   };
 };
 
-const applyDownvoteReputation = async (effects, ownerId, voterId, what, refs) => {
+const applyDownvoteReputation = async (effects, ownerId, voterId, what, refs, session) => {
   if (effects.downvoteAdded) {
     await changeReputation(ownerId, REPUTATION_RULES.downvoteReceived, {
       type: "downvote_received",
       reason: `Your ${what} received a downvote`,
+      detail: { key: what === "question" ? "downvoteQuestion" : "downvoteAnswer" },
       actor: voterId,
       ...refs,
+      session,
     });
   } else if (effects.downvoteRemoved) {
     await changeReputation(ownerId, -REPUTATION_RULES.downvoteReceived, {
       type: "downvote_retracted",
       reason: `A downvote on your ${what} was removed`,
+      detail: { key: what === "question" ? "downvoteRemovedQuestion" : "downvoteRemovedAnswer" },
       actor: voterId,
       ...refs,
+      session,
     });
   }
 };
@@ -658,28 +703,38 @@ export const votequestion = async (req, res) => {
     if (String(questionDoc.userid) === String(req.userid)) {
       return res.status(400).json({ message: "You cannot vote on your own question" });
     }
-    const effects = await castVote(_id, null, req.userid, value);
+    // The vote, its reputation effect and the milestone bonus commit together.
+    const effects = await runInTransaction(async (session) => {
+      const effects = await castVote(_id, null, req.userid, value, session);
+      if (!effects) return null;
+      await applyDownvoteReputation(effects, questionDoc.userid, req.userid, "question", { questionId: _id }, session);
+      const fresh = await question.findById(_id).session(session);
+      if (fresh.upvote.length >= REPUTATION_RULES.questionUpvoteMilestoneVotes) {
+        const claimed = await question.findOneAndUpdate(
+          { _id, upvoteMilestoneAwarded: { $ne: true } },
+          { $set: { upvoteMilestoneAwarded: true } },
+          { session }
+        );
+        if (claimed) {
+          await changeReputation(questionDoc.userid, REPUTATION_RULES.questionUpvoteMilestone, {
+            type: "question_upvote_milestone",
+            reason: `Your question "${questionDoc.questiontitle}" reached ${REPUTATION_RULES.questionUpvoteMilestoneVotes} upvotes`,
+            detail: {
+              key: "questionMilestone",
+              vars: { title: questionDoc.questiontitle, votes: REPUTATION_RULES.questionUpvoteMilestoneVotes },
+            },
+            questionId: _id,
+            session,
+          });
+        }
+      }
+      return effects;
+    });
     if (!effects) return res.status(404).json({ message: "Question not found" });
 
     // The badge counter follows live upvotes, so toggling a vote on and off cannot farm badges.
     if (effects.newUpvote) await evaluateBadges(questionDoc.userid, "questionUpvotes");
     if (effects.upvoteRemoved) await incBadgeCounter(questionDoc.userid, "questionUpvotes", -1);
-    await applyDownvoteReputation(effects, questionDoc.userid, req.userid, "question", { questionId: _id });
-
-    const fresh = await question.findById(_id);
-    if (fresh.upvote.length >= REPUTATION_RULES.questionUpvoteMilestoneVotes) {
-      const claimed = await question.findOneAndUpdate(
-        { _id, upvoteMilestoneAwarded: { $ne: true } },
-        { $set: { upvoteMilestoneAwarded: true } }
-      );
-      if (claimed) {
-        await changeReputation(questionDoc.userid, REPUTATION_RULES.questionUpvoteMilestone, {
-          type: "question_upvote_milestone",
-          reason: `Your question "${questionDoc.questiontitle}" reached ${REPUTATION_RULES.questionUpvoteMilestoneVotes} upvotes`,
-          questionId: _id,
-        });
-      }
-    }
     res.status(200).json({ data: await withPlans(await question.findById(_id)) });
   } catch (error) {
     console.log(error);
@@ -701,26 +756,35 @@ export const voteAnswer = async (req, res) => {
     if (String(answer.userid) === String(req.userid)) {
       return res.status(400).json({ message: "You cannot vote on your own answer" });
     }
-    const effects = await castVote(id, answerId, req.userid, value);
-    if (!effects) return res.status(404).json({ message: "Answer not found" });
-
-    await applyDownvoteReputation(effects, answer.userid, req.userid, "answer", { questionId: id, answerId });
-
-    const fresh = (await question.findById(id)).answer.id(answerId);
-    if ((fresh?.upvote?.length || 0) >= REPUTATION_RULES.answerUpvoteMilestoneVotes) {
-      const claimed = await question.findOneAndUpdate(
-        { _id: id, answer: { $elemMatch: { _id: answerId, upvoteMilestoneAwarded: { $ne: true } } } },
-        { $set: { "answer.$.upvoteMilestoneAwarded": true } }
-      );
-      if (claimed) {
-        await changeReputation(answer.userid, REPUTATION_RULES.answerUpvoteMilestone, {
-          type: "answer_upvote_milestone",
-          reason: `Your answer on "${questionDoc.questiontitle}" reached ${REPUTATION_RULES.answerUpvoteMilestoneVotes} upvotes`,
-          questionId: id,
-          answerId,
-        });
+    // The vote, its reputation effect and the milestone bonus commit together.
+    const effects = await runInTransaction(async (session) => {
+      const effects = await castVote(id, answerId, req.userid, value, session);
+      if (!effects) return null;
+      await applyDownvoteReputation(effects, answer.userid, req.userid, "answer", { questionId: id, answerId }, session);
+      const fresh = (await question.findById(id).session(session))?.answer.id(answerId);
+      if ((fresh?.upvote?.length || 0) >= REPUTATION_RULES.answerUpvoteMilestoneVotes) {
+        const claimed = await question.findOneAndUpdate(
+          { _id: id, answer: { $elemMatch: { _id: answerId, upvoteMilestoneAwarded: { $ne: true } } } },
+          { $set: { "answer.$.upvoteMilestoneAwarded": true } },
+          { session }
+        );
+        if (claimed) {
+          await changeReputation(answer.userid, REPUTATION_RULES.answerUpvoteMilestone, {
+            type: "answer_upvote_milestone",
+            reason: `Your answer on "${questionDoc.questiontitle}" reached ${REPUTATION_RULES.answerUpvoteMilestoneVotes} upvotes`,
+            detail: {
+              key: "answerMilestone",
+              vars: { title: questionDoc.questiontitle, votes: REPUTATION_RULES.answerUpvoteMilestoneVotes },
+            },
+            questionId: id,
+            answerId,
+            session,
+          });
+        }
       }
-    }
+      return effects;
+    });
+    if (!effects) return res.status(404).json({ message: "Answer not found" });
     res.status(200).json({ data: await withPlans(await question.findById(id)) });
   } catch (error) {
     console.log(error);

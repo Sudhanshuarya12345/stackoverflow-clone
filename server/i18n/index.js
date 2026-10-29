@@ -41,16 +41,16 @@ const lookup = (message) => {
   return null;
 };
 
-// Translates an English API message. Unknown server errors (5xx) fall back to a translated generic error
-// so internal English error text never reaches a user who chose another language.
+// Translates an English API message. Unknown text on a server error (5xx) is an internal detail, such as a
+// database or email-provider error, so it is replaced by the generic error in every language, English included.
 export const translateMessage = (message, lang, status = 200) => {
-  if (typeof message !== "string" || lang === "en") return message;
+  if (typeof message !== "string") return message;
   const index = LANGUAGES.indexOf(lang);
   if (index < 0) return message;
   const found = lookup(message);
-  if (found) return interpolate(found.row[index] || found.row[0], found.vars);
+  if (found) return lang === "en" ? message : interpolate(found.row[index] || found.row[0], found.vars);
   if (status >= 500) return interpolate(exact.get(GENERIC_ERROR)[index]);
-  if (process.env.NODE_ENV !== "production") console.warn(`[i18n] No ${lang} translation for API message: "${message}"`);
+  if (lang !== "en" && process.env.NODE_ENV !== "production") console.warn(`[i18n] No ${lang} translation for API message: "${message}"`);
   return message;
 };
 
@@ -66,6 +66,12 @@ export const translateText = (text, lang) => translateMessage(text, normalizeLan
 export const emailText = (lang, key, vars) => {
   const code = normalizeLanguage(lang);
   return interpolate(EMAIL_STRINGS[code]?.[key] ?? EMAIL_STRINGS.en[key] ?? key, vars);
+};
+
+// Plan name as the site shows it in that language ("Silver", "Plata", "सिल्वर" ...); unknown plans pass through.
+export const planLabel = (lang, plan) => {
+  const key = `plan.${String(plan || "").toLowerCase()}`;
+  return EMAIL_STRINGS[normalizeLanguage(lang)]?.[key] ?? EMAIL_STRINGS.en[key] ?? String(plan || "");
 };
 
 export const formatDateFor = (lang, value, options) =>

@@ -9,7 +9,7 @@ import axiosInstance from "@/lib/axiosinstance";
 import { useI18n } from "@/lib/i18n";
 import { ArrowDownLeft, ArrowUpRight, Check, Gift, Lock, TrendingDown, TrendingUp } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "react-toastify";
 
 export const PRIVILEGES = [
@@ -97,8 +97,13 @@ export function ReputationHistory({ userId, refreshKey = 0 }: { userId: string; 
                   <div className="min-w-0">
                     <p className="font-medium text-gray-900">{t(`repType.${item.type}` as any)}</p>
                     <p className="break-words text-xs text-gray-500">
-                      {/* Server-written reasons are English; other languages show the translated type plus any member note. */}
-                      {language === "en" ? item.reason : item.note ? `“${item.note}”` : null}
+                      {/* Entries carry a translation key; older ones only have English text, so other languages fall back to the member note. */}
+                      {item.detailKey
+                        ? t(`repDetail.${item.detailKey}` as any, item.detailVars || {})
+                        : language === "en"
+                          ? item.reason
+                          : null}
+                      {(item.detailKey || language !== "en") && item.note && `${item.detailKey ? ": " : ""}“${item.note}”`}
                       {item.questionId && (
                         <>
                           {" · "}
@@ -201,6 +206,12 @@ export function TransferHistory({ refreshKey = 0 }: { refreshKey?: number }) {
   );
 }
 
+// Identifies one submission, so a retry after a timeout or a double click cannot send the points twice.
+const newRequestId = () =>
+  typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+
 export function TransferButton({ receiver, onTransferred }: { receiver: { _id: string; name: string }; onTransferred: () => void }) {
   const { user, updateLocalUser } = useAuth();
   const { t } = useI18n();
@@ -208,6 +219,8 @@ export function TransferButton({ receiver, onTransferred }: { receiver: { _id: s
   const [amount, setAmount] = useState(10);
   const [reason, setReason] = useState("");
   const [sending, setSending] = useState(false);
+  // Kept across retries of the same transfer; cleared once it succeeds or the transfer is edited.
+  const requestId = useRef<string | null>(null);
 
   const myRep = user?.reputation ?? 0;
   const eligible = myRep > TRANSFER_RULES.minBalance;
@@ -224,7 +237,14 @@ export function TransferButton({ receiver, onTransferred }: { receiver: { _id: s
     }
     setSending(true);
     try {
-      const res = await axiosInstance.post("/user/reputation/transfer", { receiverId: receiver._id, amount, reason: reason.trim() });
+      requestId.current ??= newRequestId();
+      const res = await axiosInstance.post("/user/reputation/transfer", {
+        receiverId: receiver._id,
+        amount,
+        reason: reason.trim(),
+        requestId: requestId.current,
+      });
+      requestId.current = null;
       updateLocalUser({ reputation: res.data.reputation });
       toast.success(t("rep.transferDone", { amount, name: receiver.name }));
       setOpen(false);
@@ -270,12 +290,18 @@ export function TransferButton({ receiver, onTransferred }: { receiver: { _id: s
                 min={1}
                 max={TRANSFER_RULES.maxPerTransaction}
                 value={amount}
-                onChange={(e) => setAmount(Math.floor(Number(e.target.value)))}
+                onChange={(e) => {
+                  requestId.current = null;
+                  setAmount(Math.floor(Number(e.target.value)));
+                }}
               />
             </div>
             <div className="space-y-1">
               <Label htmlFor="rep-reason">{t("rep.reason")}</Label>
-              <Textarea id="rep-reason" maxLength={200} value={reason} onChange={(e) => setReason(e.target.value)} placeholder={t("rep.reasonPlaceholder")} />
+              <Textarea id="rep-reason" maxLength={200} value={reason} onChange={(e) => {
+                  requestId.current = null;
+                  setReason(e.target.value);
+                }} placeholder={t("rep.reasonPlaceholder")} />
             </div>
             <Button type="submit" disabled={sending} className="w-full bg-orange-600 text-white hover:bg-orange-700">
               {sending ? t("common.sending") : t("rep.confirmSend")}

@@ -1,9 +1,9 @@
 import crypto from "crypto";
 import Subscription from "../models/Subscription.js";
 import Payment from "../models/Payment.js";
-import User from "../models/auth.js";
 import WebhookEvent from "../models/WebhookEvent.js";
 import { recordSubscriptionPayment } from "../services/subscriptionBilling.js";
+import { endSubscription } from "../services/subscriptionAccess.js";
 
 const verifySignature = (reqBodyBuffer, signature) => {
   if (!signature || !process.env.RAZORPAY_WEBHOOK_SECRET) return false;
@@ -16,25 +16,9 @@ const verifySignature = (reqBodyBuffer, signature) => {
 };
 
 const markSubscriptionEndedAtPeriodEnd = async (subPayload, status) => {
-  const sub = await Subscription.findOne({ razorpay_subscription_id: subPayload.id });
+  const sub = await Subscription.findOne({ razorpay_subscription_id: subPayload.id }).select("_id");
   if (!sub) return;
-
-  const now = new Date();
-  const periodEnd = subPayload.current_end ? new Date(subPayload.current_end * 1000) : sub.current_period_end;
-  if (periodEnd && periodEnd > now && ["cancelled", "halted", "completed"].includes(status)) {
-    sub.status = "cancellation_pending";
-    sub.cancel_at_period_end = true;
-    sub.cancelled_at = now;
-    sub.current_period_end = periodEnd;
-    await sub.save();
-    return;
-  }
-
-  sub.status = status === "completed" ? "expired" : status;
-  sub.cancelled_at = now;
-  if (periodEnd) sub.current_period_end = periodEnd;
-  await sub.save();
-  await User.findByIdAndUpdate(sub.userId, { plan: "free", $unset: { activeSubscriptionId: "" } });
+  await endSubscription(sub._id, status, subPayload.current_end ? new Date(subPayload.current_end * 1000) : undefined);
 };
 
 export const handleRazorpayWebhook = async (req, res) => {

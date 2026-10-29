@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import User from "../models/auth.js";
 import ReputationLog from "../models/ReputationLog.js";
 import { revokeUserSessions } from "./sessionService.js";
+import { runInTransaction } from "./transaction.js";
 
 export const REPUTATION_RULES = {
   answerPosted: 5,
@@ -42,7 +43,12 @@ export const userHasPrivilege = async (userId, key) => {
 };
 
 // Atomically adjusts reputation and writes an activity-history entry. `session` is an optional mongoose session.
-export const changeReputation = async (userId, delta, { type, reason, note, actor, questionId, answerId, postId, transferId, session } = {}) => {
+// `detail` is { key, vars } for the translated text of the entry (see ReputationLog.detailKey).
+export const changeReputation = async (
+  userId,
+  delta,
+  { type, reason, detail, note, actor, questionId, answerId, postId, transferId, session } = {}
+) => {
   if (!delta || !userId || !mongoose.Types.ObjectId.isValid(String(userId))) return null;
   const user = await User.findByIdAndUpdate(userId, { $inc: { reputation: delta } }, { new: true, session }).select("reputation");
   if (!user) return null;
@@ -53,6 +59,8 @@ export const changeReputation = async (userId, delta, { type, reason, note, acto
         delta,
         type,
         reason,
+        detailKey: detail?.key,
+        detailVars: detail?.vars,
         note,
         balanceAfter: user.reputation,
         actor,
@@ -73,16 +81,22 @@ export const isProfileComplete = (user) =>
 // One-time +10 bonus the first time every mandatory profile field is filled in.
 export const awardProfileCompletionBonus = async (user) => {
   if (!isProfileComplete(user) || user.profileBonusAwarded) return false;
-  const claimed = await User.findOneAndUpdate(
-    { _id: user._id, profileBonusAwarded: { $ne: true } },
-    { $set: { profileBonusAwarded: true } }
-  );
-  if (!claimed) return false;
-  await changeReputation(user._id, REPUTATION_RULES.profileCompleted, {
-    type: "profile_completed",
-    reason: "Completed all mandatory profile details",
+  // The "awarded" flag and the +10 commit together, so a failure can never mark the bonus paid without paying it.
+  return runInTransaction(async (session) => {
+    const claimed = await User.findOneAndUpdate(
+      { _id: user._id, profileBonusAwarded: { $ne: true } },
+      { $set: { profileBonusAwarded: true } },
+      { session }
+    );
+    if (!claimed) return false;
+    await changeReputation(user._id, REPUTATION_RULES.profileCompleted, {
+      type: "profile_completed",
+      reason: "Completed all mandatory profile details",
+      detail: { key: "profileCompleted" },
+      session,
+    });
+    return true;
   });
-  return true;
 };
 
 export const AUTO_SUSPEND_AFTER_REMOVALS = () => {
@@ -91,23 +105,28 @@ export const AUTO_SUSPEND_AFTER_REMOVALS = () => {
 };
 
 // -10 reputation for content removed by an administrator; repeat offenders are suspended automatically.
-export const penalizeRemovedContent = async (ownerId, adminId, reason, refs = {}) => {
+// The penalty, the removal count, the suspension and the session sign-out commit together. Pass the caller's
+// `session` so they also commit with the removal of the content itself.
+export const penalizeRemovedContent = async (ownerId, adminId, reason, refs = {}, { session } = {}) => {
   if (!ownerId || !mongoose.Types.ObjectId.isValid(String(ownerId))) return { suspended: false };
+  if (!session) return runInTransaction((s) => penalizeRemovedContent(ownerId, adminId, reason, refs, { session: s }));
   await changeReputation(ownerId, REPUTATION_RULES.contentRemovedByAdmin, {
     type: "content_removed",
     reason,
     actor: adminId,
     ...refs,
+    session,
   });
-  const owner = await User.findByIdAndUpdate(ownerId, { $inc: { removedContentCount: 1 } }, { new: true }).select(
+  const owner = await User.findByIdAndUpdate(ownerId, { $inc: { removedContentCount: 1 } }, { new: true, session }).select(
     "removedContentCount suspended role"
   );
   if (owner && !owner.suspended && owner.role !== "admin" && owner.removedContentCount >= AUTO_SUSPEND_AFTER_REMOVALS()) {
     await User.updateOne(
       { _id: ownerId },
-      { suspended: true, suspendedReason: `Suspended automatically after ${owner.removedContentCount} content removals for guideline violations.` }
+      { suspended: true, suspendedReason: `Suspended automatically after ${owner.removedContentCount} content removals for guideline violations.` },
+      { session }
     );
-    await revokeUserSessions(ownerId, "suspended");
+    await revokeUserSessions(ownerId, "suspended", undefined, { session });
     return { suspended: true };
   }
   return { suspended: false };

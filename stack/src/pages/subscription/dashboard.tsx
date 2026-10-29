@@ -34,13 +34,27 @@ export default function SubscriptionDashboard() {
                 axiosInstance.get("/api/subscriptions/billing").catch(() => ({ data: { billingDetails: {} } }))
             ]);
 
-            setSubData(subRes.data.subscription);
-            setInvoices(invRes.data.invoices);
+            let subscription = subRes.data.subscription;
+            let planDetails = subRes.data.userPlanDetails;
+            let invoiceList = invRes.data.invoices;
+            // Charged but not yet confirmed (webhook late or missing): finish activation and the invoice now.
+            if (["authenticated", "pending"].includes(subscription?.status)) {
+                const reconcile = await axiosInstance.post("/api/subscriptions/reconcile").catch(() => null);
+                if (reconcile?.data?.subscription) {
+                    subscription = reconcile.data.subscription;
+                    planDetails = reconcile.data.userPlanDetails || planDetails;
+                    const refreshed = await axiosInstance.get("/api/subscriptions/invoices?page=1&limit=20").catch(() => null);
+                    if (refreshed) invoiceList = refreshed.data.invoices;
+                }
+            }
+
+            setSubData(subscription);
+            setInvoices(invoiceList);
             setBilling(billRes.data.billingDetails || {});
 
             // Sync local user plan if it drifted
-            if (subRes.data.userPlanDetails?.plan && subRes.data.userPlanDetails.plan !== user.plan) {
-                updateLocalUser({ plan: subRes.data.userPlanDetails.plan });
+            if (planDetails?.plan && planDetails.plan !== user.plan) {
+                updateLocalUser({ plan: planDetails.plan });
             }
         } catch (error) {
             toast.error(t("common.error"));
@@ -163,6 +177,11 @@ export default function SubscriptionDashboard() {
                                 {subData?.status === 'cancellation_pending' && (
                                     <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
                                         <AlertCircle className="w-4 h-4 mr-1" /> {t("billing.status.cancellation_pending")}
+                                    </span>
+                                )}
+                                {['authenticated', 'pending'].includes(subData?.status) && (
+                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800" title={t("pricing.pending")}>
+                                        <Clock className="w-4 h-4 mr-1" /> {t("billing.status.pending")}
                                     </span>
                                 )}
                                 {['cancelled', 'expired', 'halted', 'completed'].includes(subData?.status) && (

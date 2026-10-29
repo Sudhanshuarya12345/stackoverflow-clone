@@ -6,6 +6,10 @@ const reputationLogSchema = mongoose.Schema(
     delta: { type: Number, required: true },
     type: { type: String, required: true },
     reason: { type: String, required: true },
+    // Translation key (under "repDetail." in the frontend locales) and values for rendering `reason` in the
+    // viewer's language. `reason` keeps the English text for older clients and logs.
+    detailKey: { type: String },
+    detailVars: { type: mongoose.Schema.Types.Mixed },
     // Free text supplied by a member (e.g. a transfer reason), shown verbatim in every language.
     note: { type: String },
     balanceAfter: { type: Number },
