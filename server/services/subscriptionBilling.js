@@ -5,6 +5,7 @@ import User from "../models/auth.js";
 import { PLANS } from "../config/plans.js";
 import { generateInvoicePdfBuffer } from "../utils/invoicePdf.js";
 import { sendSubscriptionEmail } from "../utils/mailer.js";
+import { normalizeLanguage, planLabel } from "../i18n/index.js";
 
 export const PLAN_FEATURE_TEXT = {
   bronze: ["5 questions per day", "Bronze profile badge", "Advanced search filters"],
@@ -56,7 +57,7 @@ export const recordSubscriptionPayment = async (sub, payment, { periodStart, per
       newPayment = null;
       if (await Payment.exists({ razorpay_payment_id: payment.id }).session(session)) return;
 
-      const user = await User.findById(sub.userId).select("name email billingDetails").session(session);
+      const user = await User.findById(sub.userId).select("name email language billingDetails").session(session);
       if (!user) throw new Error(`User ${sub.userId} not found`);
       const activated = await Subscription.findByIdAndUpdate(
         sub._id,
@@ -85,6 +86,7 @@ export const recordSubscriptionPayment = async (sub, payment, { periodStart, per
         billing_period_end: activated.current_period_end,
         invoice_number: invoiceNumberForPayment(payment.id),
         invoice_issued_at: new Date(),
+        invoice_language: normalizeLanguage(user.language),
       });
       record.invoice_pdf = await generateInvoicePdfBuffer(record, user, { name: String(sub.plan).toUpperCase() });
       await record.save({ session });
@@ -140,7 +142,7 @@ export const deliverInvoiceEmail = async (paymentId, { resend = false, userId } 
   try {
     const user = await User.findById(claimed.userId).select("name email language billingDetails");
     if (!user?.email) throw new Error("User has no email address");
-    const planName = String(claimed.plan || "").toUpperCase();
+    const planName = planLabel(user.language, claimed.plan);
     const planConfig = PLANS[claimed.plan];
     // Invoices recorded before PDFs were stored are rendered on demand.
     const pdfBuffer = claimed.invoice_pdf?.length ? claimed.invoice_pdf : await generateInvoicePdfBuffer(claimed, user, { name: planName });

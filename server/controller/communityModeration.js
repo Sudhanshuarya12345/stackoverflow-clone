@@ -57,7 +57,7 @@ export const reviewReport = async (req, res) => {
             post.author,
             req.userid,
             "Community post removed by an administrator for violating guidelines",
-            { postId: post._id },
+            { postId: post._id, detail: { key: "postRemoved" } },
             { session }
           );
           authorSuspended = penalty.suspended;

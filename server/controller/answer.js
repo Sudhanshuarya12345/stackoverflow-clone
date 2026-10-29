@@ -32,6 +32,7 @@ export const Askanswer = async (req, res) => {
       await changeReputation(req.userid, REPUTATION_RULES.answerPosted, {
         type: "answer_posted",
         reason: `Posted an answer on "${updated.questiontitle}"`,
+        detail: { key: "answerPosted", vars: { title: updated.questiontitle } },
         questionId: _id,
         answerId: newAnswer?._id,
         session,
@@ -89,6 +90,7 @@ export const deleteanswer = async (req, res) => {
         await changeReputation(answer.userid, -REPUTATION_RULES.answerAccepted, {
           type: "accept_revoked",
           reason: `Accepted answer on "${questionDoc.questiontitle}" was deleted`,
+          detail: { key: "acceptedAnswerDeleted", vars: { title: questionDoc.questiontitle } },
           actor: req.userid,
           questionId: _id,
           answerId: answerid,
@@ -99,6 +101,7 @@ export const deleteanswer = async (req, res) => {
         await changeReputation(answer.userid, REPUTATION_RULES.answerDeletedByOwner, {
           type: "answer_deleted",
           reason: `Deleted your answer on "${questionDoc.questiontitle}"`,
+          detail: { key: "answerDeleted", vars: { title: questionDoc.questiontitle } },
           questionId: _id,
           answerId: answerid,
           session,
@@ -108,7 +111,7 @@ export const deleteanswer = async (req, res) => {
           answer.userid,
           req.userid,
           `Answer on "${questionDoc.questiontitle}" removed by an administrator`,
-          { questionId: _id, answerId: answerid },
+          { questionId: _id, answerId: answerid, detail: { key: "answerRemoved", vars: { title: questionDoc.questiontitle } } },
           { session }
         );
       }

@@ -19,11 +19,12 @@ const BOUNTY_AMOUNTS = [50, 100, 200, 500];
 const BOUNTY_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
 
 // Gives an unawarded bounty's reputation back to the member who offered it.
-const refundBounty = async (bounty, questionId, title, reason, session) => {
+const refundBounty = async (bounty, questionId, title, reason, detailKey, session) => {
   if (!bounty?.amount || !bounty.startedBy) return;
   await changeReputation(bounty.startedBy, bounty.amount, {
     type: "bounty_refunded",
     reason: `${reason} on "${title}"`,
+    detail: { key: detailKey, vars: { title } },
     questionId,
     session,
   });
@@ -42,7 +43,7 @@ export const expireOldBounties = async (filter = {}) => {
         { $set: { "bounty.status": "expired" } },
         { session }
       ).select("bounty questiontitle");
-      if (expired) await refundBounty(expired.bounty, _id, expired.questiontitle, "Bounty expired without an award", session);
+      if (expired) await refundBounty(expired.bounty, _id, expired.questiontitle, "Bounty expired without an award", "bountyExpired", session);
     });
   }
 };
@@ -345,6 +346,7 @@ export const startBounty = async (req, res) => {
             delta: -amount,
             type: "bounty_started",
             reason: `Offered a bounty on "${updated.questiontitle}"`,
+            detail: { key: "bountyStarted", vars: { title: updated.questiontitle } },
             balanceAfter: user.reputation,
             questionId: id,
           },
@@ -377,6 +379,7 @@ const applyAcceptance = async (questionDoc, answerId, actorId, session) => {
     await changeReputation(previous.userid, -REPUTATION_RULES.answerAccepted, {
       type: "accept_revoked",
       reason: `Answer on "${questionDoc.questiontitle}" is no longer accepted`,
+      detail: { key: "acceptRevoked", vars: { title: questionDoc.questiontitle } },
       actor: actorId,
       questionId: questionDoc._id,
       answerId: previous._id,
@@ -387,6 +390,7 @@ const applyAcceptance = async (questionDoc, answerId, actorId, session) => {
     await changeReputation(next.userid, REPUTATION_RULES.answerAccepted, {
       type: "answer_accepted",
       reason: `Answer accepted on "${questionDoc.questiontitle}"`,
+      detail: { key: "answerAccepted", vars: { title: questionDoc.questiontitle } },
       actor: actorId,
       questionId: questionDoc._id,
       answerId: next._id,
@@ -448,6 +452,7 @@ export const awardBounty = async (req, res) => {
         await changeReputation(answer.userid, claimed.bounty.amount, {
           type: "bounty_awarded",
           reason: `Won a +${claimed.bounty.amount} bounty on "${questionDoc.questiontitle}"`,
+          detail: { key: "bountyAwarded", vars: { amount: claimed.bounty.amount, title: questionDoc.questiontitle } },
           actor: req.userid,
           questionId: id,
           answerId,
@@ -609,10 +614,13 @@ export const deletequestion = async (req, res) => {
       if (!deleted) return;
       // A bounty that can no longer be awarded goes back to whoever offered it.
       if (deleted.bounty?.status === "active") {
-        await refundBounty(deleted.bounty, _id, deleted.questiontitle, "Bounty returned because the question was deleted", session);
+        await refundBounty(deleted.bounty, _id, deleted.questiontitle, "Bounty returned because the question was deleted", "bountyQuestionDeleted", session);
       }
       if (!isOwner && isAdmin) {
-        await penalizeRemovedContent(questionDoc.userid, req.userid, `Question "${questionDoc.questiontitle}" removed by an administrator`, { questionId: _id }, { session });
+        await penalizeRemovedContent(questionDoc.userid, req.userid, `Question "${questionDoc.questiontitle}" removed by an administrator`, {
+          questionId: _id,
+          detail: { key: "questionRemoved", vars: { title: questionDoc.questiontitle } },
+        }, { session });
       }
     });
     res.status(200).json({ message: "question deleted" });
@@ -665,6 +673,7 @@ const applyDownvoteReputation = async (effects, ownerId, voterId, what, refs, se
     await changeReputation(ownerId, REPUTATION_RULES.downvoteReceived, {
       type: "downvote_received",
       reason: `Your ${what} received a downvote`,
+      detail: { key: what === "question" ? "downvoteQuestion" : "downvoteAnswer" },
       actor: voterId,
       ...refs,
       session,
@@ -673,6 +682,7 @@ const applyDownvoteReputation = async (effects, ownerId, voterId, what, refs, se
     await changeReputation(ownerId, -REPUTATION_RULES.downvoteReceived, {
       type: "downvote_retracted",
       reason: `A downvote on your ${what} was removed`,
+      detail: { key: what === "question" ? "downvoteRemovedQuestion" : "downvoteRemovedAnswer" },
       actor: voterId,
       ...refs,
       session,
@@ -709,6 +719,10 @@ export const votequestion = async (req, res) => {
           await changeReputation(questionDoc.userid, REPUTATION_RULES.questionUpvoteMilestone, {
             type: "question_upvote_milestone",
             reason: `Your question "${questionDoc.questiontitle}" reached ${REPUTATION_RULES.questionUpvoteMilestoneVotes} upvotes`,
+            detail: {
+              key: "questionMilestone",
+              vars: { title: questionDoc.questiontitle, votes: REPUTATION_RULES.questionUpvoteMilestoneVotes },
+            },
             questionId: _id,
             session,
           });
@@ -758,6 +772,10 @@ export const voteAnswer = async (req, res) => {
           await changeReputation(answer.userid, REPUTATION_RULES.answerUpvoteMilestone, {
             type: "answer_upvote_milestone",
             reason: `Your answer on "${questionDoc.questiontitle}" reached ${REPUTATION_RULES.answerUpvoteMilestoneVotes} upvotes`,
+            detail: {
+              key: "answerMilestone",
+              vars: { title: questionDoc.questiontitle, votes: REPUTATION_RULES.answerUpvoteMilestoneVotes },
+            },
             questionId: id,
             answerId,
             session,

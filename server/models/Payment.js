@@ -20,6 +20,8 @@ const paymentSchema = mongoose.Schema(
     invoice_issued_at: { type: Date },
     // The invoice as issued, rendered in the same transaction that activates the subscription.
     invoice_pdf: { type: Buffer, select: false },
+    // Language the stored PDF is written in (the user's language when it was issued).
+    invoice_language: { type: String },
     invoice_email_sent_at: { type: Date },
     // Outbox bookkeeping for the confirmation email, which is retried with backoff until it is delivered.
     invoice_email_attempts: { type: Number, default: 0 },

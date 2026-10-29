@@ -43,7 +43,12 @@ export const userHasPrivilege = async (userId, key) => {
 };
 
 // Atomically adjusts reputation and writes an activity-history entry. `session` is an optional mongoose session.
-export const changeReputation = async (userId, delta, { type, reason, note, actor, questionId, answerId, postId, transferId, session } = {}) => {
+// `detail` is { key, vars } for the translated text of the entry (see ReputationLog.detailKey).
+export const changeReputation = async (
+  userId,
+  delta,
+  { type, reason, detail, note, actor, questionId, answerId, postId, transferId, session } = {}
+) => {
   if (!delta || !userId || !mongoose.Types.ObjectId.isValid(String(userId))) return null;
   const user = await User.findByIdAndUpdate(userId, { $inc: { reputation: delta } }, { new: true, session }).select("reputation");
   if (!user) return null;
@@ -54,6 +59,8 @@ export const changeReputation = async (userId, delta, { type, reason, note, acto
         delta,
         type,
         reason,
+        detailKey: detail?.key,
+        detailVars: detail?.vars,
         note,
         balanceAfter: user.reputation,
         actor,
@@ -85,6 +92,7 @@ export const awardProfileCompletionBonus = async (user) => {
     await changeReputation(user._id, REPUTATION_RULES.profileCompleted, {
       type: "profile_completed",
       reason: "Completed all mandatory profile details",
+      detail: { key: "profileCompleted" },
       session,
     });
     return true;

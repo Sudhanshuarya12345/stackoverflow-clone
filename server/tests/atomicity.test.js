@@ -244,6 +244,8 @@ describe("reputation transfer", () => {
     assert.equal(transfer.receiverBalanceAfter, 40);
     const logs = await ReputationLog.find({ transferId: transfer._id }).sort({ delta: 1 });
     assert.deepEqual(logs.map((l) => [String(l.user), l.delta]), [[String(sender._id), -30], [String(receiver._id), 30]]);
+    // History entries carry a translation key so they render in the viewer's language.
+    assert.deepEqual(logs.map((l) => [l.detailKey, l.detailVars]), [["transferSent", { name: "receiver" }], ["transferReceived", undefined]]);
   });
 
   test("leaves every record untouched when a step fails part-way through", async () => {
@@ -285,5 +287,74 @@ describe("reputation transfer", () => {
     assert.equal((await User.findById(receiver._id)).reputation, 200);
     assert.equal(await ReputationTransfer.countDocuments(), 2);
     assert.equal(await ReputationLog.countDocuments(), 4);
+  });
+
+  test("a retried submission returns the first transfer instead of sending the points again", async () => {
+    const sender = await makeUser("sender", { reputation: 100 });
+    const receiver = await makeUser("receiver");
+    const body = { receiverId: String(receiver._id), amount: 20, reason: "great answer", requestId: "req-retry-0001" };
+
+    const first = await callTransfer(sender._id, body);
+    const retry = await callTransfer(sender._id, body);
+
+    assert.equal(first.statusCode, 201);
+    assert.equal(retry.statusCode, 200);
+    assert.equal(retry.body.duplicate, true);
+    assert.equal(String(retry.body.data._id), String(first.body.data._id));
+    assert.equal((await User.findById(sender._id)).reputation, 80);
+    assert.equal(await ReputationTransfer.countDocuments(), 1);
+  });
+
+  test("simultaneous submissions with the same request id transfer once", async () => {
+    const sender = await makeUser("sender", { reputation: 100 });
+    const receiver = await makeUser("receiver");
+    const body = { receiverId: String(receiver._id), amount: 20, reason: "great answer", requestId: "req-race-00001" };
+
+    const results = await Promise.all([1, 2, 3].map(() => callTransfer(sender._id, body)));
+
+    assert.equal(results.filter((r) => r.statusCode === 201).length, 1);
+    assert.ok(results.every((r) => [200, 201].includes(r.statusCode)), "duplicates are answered with the original transfer");
+    assert.equal((await User.findById(sender._id)).reputation, 80);
+    assert.equal((await User.findById(receiver._id)).reputation, 120, "starting 100 + one transfer of 20");
+    assert.equal(await ReputationTransfer.countDocuments(), 1);
+    assert.equal(await ReputationLog.countDocuments(), 2);
+  });
+
+  test("a request id reused for a different transfer is rejected", async () => {
+    const sender = await makeUser("sender", { reputation: 100 });
+    const receiver = await makeUser("receiver");
+    await callTransfer(sender._id, { receiverId: String(receiver._id), amount: 20, reason: "great answer", requestId: "req-reuse-0001" });
+
+    const res = await callTransfer(sender._id, { receiverId: String(receiver._id), amount: 30, reason: "great answer", requestId: "req-reuse-0001" });
+
+    assert.equal(res.statusCode, 409);
+    assert.equal((await User.findById(sender._id)).reputation, 80);
+  });
+
+  test("suspended members cannot receive reputation", async () => {
+    const sender = await makeUser("sender", { reputation: 100 });
+    const receiver = await makeUser("receiver", { suspended: true });
+
+    const res = await callTransfer(sender._id, { receiverId: String(receiver._id), amount: 20, reason: "great answer" });
+
+    assert.equal(res.statusCode, 400);
+    assert.equal(res.body.message, "This member can't receive reputation right now");
+    assert.equal((await User.findById(sender._id)).reputation, 100);
+    assert.equal(await ReputationTransfer.countDocuments(), 0);
+  });
+
+  test("a transfer that loses a race on the balance reports the balance, not the daily limit", async () => {
+    const sender = await makeUser("sender", { reputation: 90 });
+    const receiver = await makeUser("receiver");
+
+    // Both pass the up-front checks; only one can debit, after which the balance (45) is below the minimum.
+    const results = await Promise.all(
+      [1, 2].map(() => callTransfer(sender._id, { receiverId: String(receiver._id), amount: 45, reason: "thanks a lot" }))
+    );
+
+    assert.equal(results.filter((r) => r.statusCode === 201).length, 1);
+    const failed = results.find((r) => r.statusCode !== 201);
+    assert.equal(failed.statusCode, 400);
+    assert.match(failed.body.message, /^You need more than 50 reputation/);
   });
 });

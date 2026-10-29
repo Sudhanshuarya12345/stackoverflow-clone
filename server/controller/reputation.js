@@ -4,6 +4,30 @@ import ReputationLog from "../models/ReputationLog.js";
 import ReputationTransfer from "../models/ReputationTransfer.js";
 import { todayKey } from "../utils/day.js";
 import { PRIVILEGES, REPUTATION_RULES, TRANSFER_RULES, changeReputation } from "../services/reputationService.js";
+import { abortWith } from "../services/transaction.js";
+
+const RECIPIENT_UNAVAILABLE = "This member can't receive reputation right now";
+
+const sentTodayOf = (user, todayStr = todayKey()) => (user?.repTransferDate === todayStr ? user.repTransferredToday || 0 : 0);
+
+// A retried submission (same requestId) gets the transfer it already made instead of sending the points twice.
+// Returns true when the response has been sent.
+const replayTransfer = async (res, senderId, requestId, { receiverId, amount }) => {
+  const existing = await ReputationTransfer.findOne({ sender: senderId, requestId });
+  if (!existing) return false;
+  if (String(existing.receiver) !== String(receiverId) || existing.amount !== amount) {
+    res.status(409).json({ message: "This transfer request was already used for a different transfer" });
+    return true;
+  }
+  const me = await User.findById(senderId).select("reputation repTransferDate repTransferredToday");
+  res.status(200).json({
+    data: existing,
+    reputation: me?.reputation,
+    remainingToday: Math.max(0, TRANSFER_RULES.maxPerDay - sentTodayOf(me)),
+    duplicate: true,
+  });
+  return true;
+};
 
 const getPagination = (query) => {
   const page = Math.max(1, parseInt(query.page, 10) || 1);
@@ -71,6 +95,7 @@ export const transferReputation = async (req, res) => {
   const { receiverId } = req.body;
   const amount = Number(req.body.amount);
   const reason = String(req.body.reason || "").trim();
+  const requestId = req.body.requestId === undefined || req.body.requestId === null ? undefined : String(req.body.requestId);
   try {
     if (!mongoose.Types.ObjectId.isValid(receiverId)) return res.status(400).json({ message: "Choose a valid recipient" });
     if (String(receiverId) === String(req.userid)) return res.status(400).json({ message: "You cannot transfer reputation to yourself" });
@@ -79,9 +104,13 @@ export const transferReputation = async (req, res) => {
       return res.status(400).json({ message: `You can transfer at most ${TRANSFER_RULES.maxPerTransaction} points per transaction` });
     }
     if (reason.length < 3 || reason.length > 200) return res.status(400).json({ message: "Give a reason between 3 and 200 characters" });
+    if (requestId !== undefined && !/^[\w-]{8,64}$/.test(requestId)) return res.status(400).json({ message: "Invalid transfer request" });
+    if (requestId && (await replayTransfer(res, req.userid, requestId, { receiverId, amount }))) return;
 
     const receiver = await User.findById(receiverId).select("name suspended");
     if (!receiver) return res.status(404).json({ message: "Recipient not found" });
+    // Suspension is the penalty for guideline violations, so suspended members cannot be rewarded.
+    if (receiver.suspended) return res.status(400).json({ message: RECIPIENT_UNAVAILABLE });
 
     const sender = await User.findById(req.userid).select("reputation repTransferDate repTransferredToday");
     if (!sender) return res.status(404).json({ message: "User not found" });
@@ -118,15 +147,21 @@ export const transferReputation = async (req, res) => {
           { new: true, session }
         );
         if (!debited) {
-          result = { limitReached: true };
+          result = { notDebited: true };
           return;
         }
+
+        // Re-checked inside the transaction so a suspension or deletion during the request rolls back the debit.
+        const target = await User.findById(receiverId).select("suspended").session(session);
+        if (!target) throw abortWith(404, "Recipient not found");
+        if (target.suspended) throw abortWith(400, RECIPIENT_UNAVAILABLE);
 
         // Credit the recipient and write their history entry.
         const transferId = new mongoose.Types.ObjectId();
         const receiverBalance = await changeReputation(receiverId, amount, {
           type: "transfer_received",
           reason: `Received from a community member: ${reason}`,
+          detail: { key: "transferReceived" },
           note: reason,
           actor: req.userid,
           transferId,
@@ -145,6 +180,7 @@ export const transferReputation = async (req, res) => {
               reason,
               senderBalanceAfter: debited.reputation,
               receiverBalanceAfter: receiverBalance,
+              requestId,
             },
           ],
           { session }
@@ -156,6 +192,8 @@ export const transferReputation = async (req, res) => {
               delta: -amount,
               type: "transfer_sent",
               reason: `Sent to ${receiver.name}: ${reason}`,
+              detailKey: "transferSent",
+              detailVars: { name: receiver.name },
               note: reason,
               balanceAfter: debited.reputation,
               actor: req.userid,
@@ -170,16 +208,29 @@ export const transferReputation = async (req, res) => {
       await session.endSession();
     }
 
-    if (result.limitReached) {
-      const used = sender.repTransferDate === todayStr ? sender.repTransferredToday || 0 : 0;
-      return res.status(400).json({
-        message: `Daily transfer limit is ${TRANSFER_RULES.maxPerDay} points. You can still send ${Math.max(0, TRANSFER_RULES.maxPerDay - used)} today.`,
-      });
+    if (result.notDebited) {
+      // The conditional debit failed: report the actual reason from the sender's current state, which another
+      // request may have changed since the checks above.
+      const current = await User.findById(req.userid).select("reputation repTransferDate repTransferredToday");
+      const balance = current?.reputation ?? 0;
+      if (balance <= TRANSFER_RULES.minBalance) {
+        return res.status(400).json({ message: `You need more than ${TRANSFER_RULES.minBalance} reputation to transfer points` });
+      }
+      if (amount > balance) return res.status(400).json({ message: "You don't have enough reputation for this transfer" });
+      const used = sentTodayOf(current, todayStr);
+      if (used + amount > TRANSFER_RULES.maxPerDay) {
+        return res.status(400).json({
+          message: `Daily transfer limit is ${TRANSFER_RULES.maxPerDay} points. You can still send ${Math.max(0, TRANSFER_RULES.maxPerDay - used)} today.`,
+        });
+      }
+      return res.status(409).json({ message: "The transfer could not be completed. Please try again." });
     }
     const { transfer, debited } = result;
     res.status(201).json({ data: transfer, reputation: debited.reputation, remainingToday: TRANSFER_RULES.maxPerDay - debited.repTransferredToday });
   } catch (error) {
-    if (error.status === 404) return res.status(404).json({ message: error.message });
+    // Two submissions with the same requestId raced: the other one committed, so answer with its transfer.
+    if (error.code === 11000 && requestId && (await replayTransfer(res, req.userid, requestId, { receiverId, amount }).catch(() => false))) return;
+    if (error.aborted || error.status === 404) return res.status(error.status).json({ message: error.message });
     console.log(error);
     res.status(500).json({ message: "Could not transfer reputation" });
   }

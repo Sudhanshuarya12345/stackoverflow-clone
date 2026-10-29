@@ -4,6 +4,15 @@ export const MESSAGE_ROWS = [
   // General
   ["Something went wrong. Please try again later.", "Algo salió mal. Inténtalo de nuevo más tarde.", "कुछ गलत हो गया। कृपया बाद में पुनः प्रयास करें।", "Algo deu errado. Tente novamente mais tarde.", "出了点问题，请稍后再试。", "Une erreur s'est produite. Veuillez réessayer plus tard."],
   ["something went wrong..", "Algo salió mal. Inténtalo de nuevo más tarde.", "कुछ गलत हो गया। कृपया बाद में पुनः प्रयास करें।", "Algo deu errado. Tente novamente mais tarde.", "出了点问题，请稍后再试。", "Une erreur s'est produite. Veuillez réessayer plus tard."],
+  ["Could not verify code", "No se pudo verificar el código", "कोड सत्यापित नहीं हो सका", "Não foi possível verificar o código", "无法验证验证码", "Impossible de vérifier le code"],
+  ["Could not resend code", "No se pudo reenviar el código", "कोड दोबारा नहीं भेजा जा सका", "Não foi possível reenviar o código", "无法重新发送验证码", "Impossible de renvoyer le code"],
+  ["Could not send verification code", "No se pudo enviar el código de verificación", "सत्यापन कोड नहीं भेजा जा सका", "Não foi possível enviar o código de verificação", "无法发送验证码", "Impossible d'envoyer le code de vérification"],
+  ["Could not create post", "No se pudo crear la publicación", "पोस्ट नहीं बनाई जा सकी", "Não foi possível criar a publicação", "无法创建帖子", "Impossible de créer la publication"],
+  ["Could not update post", "No se pudo actualizar la publicación", "पोस्ट अपडेट नहीं की जा सकी", "Não foi possível atualizar a publicação", "无法更新帖子", "Impossible de mettre à jour la publication"],
+  ["Invalid transfer request", "Solicitud de transferencia no válida", "अमान्य ट्रांसफ़र अनुरोध", "Solicitação de transferência inválida", "无效的转账请求", "Demande de transfert invalide"],
+  ["This transfer request was already used for a different transfer", "Esta solicitud de transferencia ya se usó para otra transferencia", "यह ट्रांसफ़र अनुरोध पहले ही किसी दूसरे ट्रांसफ़र के लिए उपयोग हो चुका है", "Esta solicitação de transferência já foi usada para outra transferência", "该转账请求已用于另一笔转账", "Cette demande de transfert a déjà été utilisée pour un autre transfert"],
+  ["This member can't receive reputation right now", "Este miembro no puede recibir reputación en este momento", "यह सदस्य अभी प्रतिष्ठा प्राप्त नहीं कर सकता", "Este membro não pode receber reputação no momento", "该成员目前无法接收声望", "Ce membre ne peut pas recevoir de réputation pour le moment"],
+  ["The transfer could not be completed. Please try again.", "No se pudo completar la transferencia. Inténtalo de nuevo.", "ट्रांसफ़र पूरा नहीं हो सका। कृपया फिर से प्रयास करें।", "Não foi possível concluir a transferência. Tente novamente.", "转账未能完成，请重试。", "Le transfert n'a pas pu être effectué. Veuillez réessayer."],
   ["Route not found", "Ruta no encontrada", "रूट नहीं मिला", "Rota não encontrada", "未找到该路由", "Route introuvable"],
   ["Invalid {name}", "{name} no válido", "अमान्य {name}", "{name} inválido", "无效的 {name}", "{name} invalide"],
 

@@ -142,13 +142,14 @@ export const downloadInvoice = async (req, res) => {
       return res.status(404).json({ message: "Invoice not found" });
     }
 
-    // Serve the invoice exactly as it was issued; invoices recorded before PDFs were stored are rendered now.
+    // Serve the invoice as issued when it is in the language the site is shown in. Otherwise (or for invoices
+    // recorded before PDFs were stored) render the same invoice data in that language.
     const stored = await Payment.findById(payment._id).select("+invoice_pdf");
     let buffer = stored?.invoice_pdf;
-    if (!buffer?.length) {
+    if (!buffer?.length || (stored.invoice_language || "en") !== req.language) {
       const user = await User.findById(req.userid);
-      const planName = payment.subscriptionId ? payment.subscriptionId.plan : "Premium";
-      buffer = await generateInvoicePdfBuffer(payment, user, { name: planName.toUpperCase() });
+      const planName = payment.plan || payment.subscriptionId?.plan || "Premium";
+      buffer = await generateInvoicePdfBuffer(payment, user, { name: planName.toUpperCase() }, { lang: req.language });
     }
 
     res.setHeader("Content-Type", "application/pdf");

@@ -249,7 +249,10 @@ export const deletePost = async (req, res) => {
     await runInTransaction(async (session) => {
       const deleted = await CommunityPost.findByIdAndDelete(post._id, { session });
       if (deleted && String(post.author) !== String(req.userid)) {
-        await penalizeRemovedContent(post.author, req.userid, "Community post removed by an administrator", { postId: post._id }, { session });
+        await penalizeRemovedContent(post.author, req.userid, "Community post removed by an administrator", {
+          postId: post._id,
+          detail: { key: "postRemoved" },
+        }, { session });
       }
     });
     await destroyImages(post.images);
