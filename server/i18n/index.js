@@ -74,6 +74,12 @@ export const planLabel = (lang, plan) => {
   return EMAIL_STRINGS[normalizeLanguage(lang)]?.[key] ?? EMAIL_STRINGS.en[key] ?? String(plan || "");
 };
 
+// Razorpay payment method ("card", "netbanking" ...) in that language; unknown methods are shown as sent.
+export const paymentMethodLabel = (lang, method) => {
+  const key = `method.${String(method || "").toLowerCase()}`;
+  return EMAIL_STRINGS[normalizeLanguage(lang)]?.[key] ?? EMAIL_STRINGS.en[key] ?? String(method || "");
+};
+
 export const formatDateFor = (lang, value, options) =>
   new Date(value).toLocaleDateString(LOCALE_TAGS[normalizeLanguage(lang)], options);
 

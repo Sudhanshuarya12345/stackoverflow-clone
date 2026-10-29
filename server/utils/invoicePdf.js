@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import PDFDocument from "pdfkit";
-import { LOCALE_TAGS, emailText, formatDateFor, normalizeLanguage, planLabel } from "../i18n/index.js";
+import { LOCALE_TAGS, emailText, formatDateFor, normalizeLanguage, paymentMethodLabel, planLabel } from "../i18n/index.js";
 
 // PDFKit's built-in Helvetica only covers Western European text, so the invoice embeds Noto fonts (SIL Open Font
 // License, see assets/fonts) for Latin, Devanagari (Hindi) and Simplified Chinese.
@@ -145,7 +145,7 @@ export const generateInvoicePdfBuffer = (paymentDoc, userDoc, planDetails, { lan
       doc.moveDown(3);
       doc.fontSize(11);
       writeLine(doc, t("invoice.period", { start: date(paymentDoc.billing_period_start), end: date(paymentDoc.billing_period_end) }), { x: left });
-      writeLine(doc, t("invoice.method", { method: paymentDoc.payment_method || "Razorpay" }), { x: left });
+      writeLine(doc, t("invoice.method", { method: paymentDoc.payment_method ? paymentMethodLabel(code, paymentDoc.payment_method) : "Razorpay" }), { x: left });
       writeLine(doc, t("invoice.tax", { amount: money(code, paymentDoc.tax_amount || 0, currency) }), { x: left });
       writeLine(doc, t("invoice.total", { amount: money(code, paymentDoc.amount, currency) }), { x: left, bold: true });
 
